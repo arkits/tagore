@@ -539,7 +539,7 @@ function ChapterSession({
   return (
     <>
       <main className="story-desk flex-1 min-w-0 overflow-y-auto thin-scroll" id="manuscript-scroll">
-        <div className="mx-auto max-w-[780px] px-6 pt-8 pb-40">
+        <div className="chapter-layout mx-auto max-w-[780px] px-6 pt-8 pb-40">
           <div className="@container chapter-title-wrap mb-6">
            <div className="grid items-center gap-3 grid-cols-[minmax(0,1fr)_auto] @[560px]:grid-cols-[minmax(104px,1fr)_minmax(0,5fr)_minmax(104px,1fr)]">
             <span aria-hidden className="hidden @[560px]:block" />
