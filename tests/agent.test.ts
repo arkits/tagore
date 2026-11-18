@@ -39,6 +39,19 @@ test("context: triggers lore by keyword, includes summaries and character cards"
   expect(ctx.sections.map((s) => s.name)).toContain("Lorebook");
 });
 
+test("chat persona: project edits reach the co-author context", async () => {
+  const { appRouter } = await import("../src/server/router");
+  const caller = appRouter.createCaller({});
+  const { id, chapterId } = await caller.projects.create({ title: "Night Train", format: "chat" });
+  const personaDescription = "Repairs train clocks and texts in short sentences.";
+  await caller.projects.update({ id, pov: "Ada", personaDescription });
+
+  expect(await caller.projects.get(id)).toMatchObject({ pov: "Ada", personaDescription });
+  const { prompt } = buildContext({ chapterId, instruction: "continue", mode: "continue", budget: 20000 });
+  expect(prompt).toContain("My persona (Ada)");
+  expect(prompt).toContain(personaDescription);
+});
+
 test("context: windows large chapters around the focus", () => {
   const big = Array.from({ length: 400 }, (_, i) => `Paragraph ${i} ` + "lorem ipsum dolor sit amet ".repeat(12)).join("\n");
   db.insert(schema.chapters).values({ id: "big", projectId: "p1", title: "Big", position: 2, content: doc(big) }).run();

@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `persona_description` text DEFAULT '' NOT NULL;

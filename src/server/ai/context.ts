@@ -180,10 +180,12 @@ export function buildContext(req: ContextRequest): BuiltContext {
   const scan = [req.instruction, chapter.notes, chapter.title, nearFocus, prevTail.slice(-2000), project.authorsNote].join("\n");
 
   /* ---- 1. story bible ---- */
+  const pov = project.pov.trim() || "Me";
   const bible = [
     `# ${project.title}`,
     `Format: ${project.format === "chat" ? "chat story: told entirely as a message thread" : "prose fiction"}`,
-    project.format === "chat" && `Whose screen this is (their messages are "me"): ${project.pov || "unspecified — pick the protagonist"}`,
+    project.format === "chat" && `Whose screen this is (their messages are "me"): ${pov}`,
+    project.format === "chat" && project.personaDescription.trim() && `## My persona (${pov})\n${project.personaDescription.trim()}`,
     project.premise && `## Premise\n${project.premise}`,
     project.styleGuide && `## Style guide\n${project.styleGuide}`,
   ]
@@ -199,7 +201,6 @@ export function buildContext(req: ContextRequest): BuiltContext {
     .where(eq(schema.projectCharacters.projectId, project.id))
     .all();
 
-  const pov = project.pov.trim() || "Me";
   const replySpeakers = req.mode === "reply"
     ? [...new Set(cast.map(({ c }) => c.card.nickname || c.name))].filter((name) => name.toLowerCase() !== pov.toLowerCase())
     : [];

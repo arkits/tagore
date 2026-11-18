@@ -71,6 +71,7 @@ const projectsRouter = t.router({
         format: z.enum(["prose", "chat"]).optional(),
         theme: z.string().max(40).optional(),
         pov: z.string().max(80).optional(),
+        personaDescription: z.string().max(4000).optional(),
         premise: z.string().optional(),
         styleGuide: z.string().optional(),
         authorsNote: z.string().optional(),
@@ -238,11 +239,12 @@ const charactersRouter = t.router({
     .input(z.object({ id: z.string(), card: cardSchema, avatar: z.string().nullable().optional() }))
     .mutation(({ input }) => {
       const card = normalizeCard({ spec: "chara_card_v2", data: input.card });
-      db.update(schema.characters)
+      const character = db.update(schema.characters)
         .set({ card, name: card.name, ...(input.avatar !== undefined ? { avatar: input.avatar } : {}), updatedAt: Date.now() })
         .where(eq(schema.characters.id, input.id))
-        .run();
-      return { ok: true };
+        .returning()
+        .get();
+      return { ok: true, character };
     }),
   /** Import from a JSON card or a PNG card (base64 data URL). */
   import: p

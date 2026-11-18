@@ -28,6 +28,7 @@ function App() {
       <Route path="/">
         <Library />
       </Route>
+      <Route path="/p/:projectId/characters">{(p) => <Workspace projectId={p.projectId} characters />}</Route>
       <Route path="/p/:projectId/:chapterId?">{(p) => <Workspace projectId={p.projectId} chapterId={p.chapterId} />}</Route>
       <Route>
         <Library />

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import type { Editor } from "@tiptap/react";
 import { toast } from "sonner";
 import { CheckCheck, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, RotateCcw, ScrollText, Settings2, X } from "lucide-react";
@@ -15,6 +15,7 @@ import { getTheme } from "@/lib/themes";
 import { AgentPanel, type LiveRun } from "../agent/AgentPanel";
 import { ChangesPanel } from "../agent/ChangesPanel";
 import { SummaryPage } from "./SummaryPage";
+import { CharactersPage } from "../characters/CharactersPage";
 import { Sidebar } from "./Sidebar";
 import { SettingsDialog } from "../settings/SettingsDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -27,14 +28,19 @@ const sidebarTransition = "shrink-0 overflow-hidden flex transition-[width,opaci
 
 type SaveState = "saved" | "dirty" | "saving" | "error";
 
-export function Workspace({ projectId, chapterId }: { projectId: string; chapterId?: string }) {
+export function Workspace({ projectId, chapterId, characters = false }: { projectId: string; chapterId?: string; characters?: boolean }) {
   const [, navigate] = useLocation();
+  const search = useSearch();
   const project = useQuery(trpc.projects.get.queryOptions(projectId));
   const chapters = useQuery(trpc.chapters.list.queryOptions(projectId));
 
   useEffect(() => {
-    if (!chapterId && chapters.data?.length) navigate(`/p/${projectId}/${chapters.data[0]!.id}`, { replace: true });
-  }, [chapterId, chapters.data, projectId, navigate]);
+    if (!characters && !chapterId && chapters.data?.length) navigate(`/p/${projectId}/${chapters.data[0]!.id}`, { replace: true });
+  }, [characters, chapterId, chapters.data, projectId, navigate]);
+
+  const from = characters ? new URLSearchParams(search).get("from") : null;
+  const returnChapter = chapters.data?.find((chapter) => chapter.id === from);
+  const manuscriptHref = `/p/${projectId}${returnChapter ? `/${returnChapter.id}` : ""}`;
 
   const cast = useQuery(trpc.characters.forProject.queryOptions(projectId));
   const format: StoryFormat = project.data?.format === "chat" ? "chat" : "prose";
@@ -62,7 +68,8 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     try {
-      return localStorage.getItem("tagore.sidebar") !== "closed";
+      const saved = localStorage.getItem("tagore.sidebar");
+      return saved ? saved === "open" : window.matchMedia("(min-width: 768px)").matches;
     } catch {
       return true;
     }
@@ -159,9 +166,11 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
             sidebarOpen ? "w-64 opacity-100" : "w-0 opacity-0",
           )}
         >
-          <Sidebar projectId={projectId} chapterId={chapterId} />
+          <Sidebar projectId={projectId} chapterId={chapterId ?? returnChapter?.id} characters={characters} />
         </div>
-        {chapterId && project.data ? (
+        {characters ? (
+          <CharactersPage key={projectId} projectId={projectId} manuscriptHref={manuscriptHref} />
+        ) : chapterId && project.data ? (
           <ChapterSession
             key={chapterId}
             projectId={projectId}

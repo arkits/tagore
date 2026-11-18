@@ -7,16 +7,22 @@ import { queryClient, trpc } from "@/lib/trpc";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { StoryBibleDialog } from "../project/StoryBibleDialog";
-import { CharactersDialog, Avatar } from "../characters/CharactersDialog";
+import { Avatar } from "../characters/CharactersPage";
 import { LoreDialog } from "../lore/LoreDialog";
 
-export function Sidebar({ projectId, chapterId }: { projectId: string; chapterId?: string }) {
+export function Sidebar({ projectId, chapterId, characters }: { projectId: string; chapterId?: string; characters: boolean }) {
   const [, navigate] = useLocation();
   const chapters = useQuery(trpc.chapters.list.queryOptions(projectId));
   const cast = useQuery(trpc.characters.forProject.queryOptions(projectId));
   const lore = useQuery(trpc.lore.list.queryOptions(projectId));
   const [bible, setBible] = useState(false);
-  const [chars, setChars] = useState<{ open: boolean; id?: string | null }>({ open: false });
+  const charactersHref = `/p/${projectId}/characters`;
+  const charactersLink = (characterId?: string) => {
+    const params = new URLSearchParams();
+    if (chapterId) params.set("from", chapterId);
+    if (characterId) params.set("character", characterId);
+    return params.size ? `${charactersHref}?${params}` : charactersHref;
+  };
   const [loreOpen, setLoreOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; trigger: HTMLElement | null } | null>(null);
 
@@ -100,24 +106,23 @@ export function Sidebar({ projectId, chapterId }: { projectId: string; chapterId
           <NavButton icon={Globe2} label="Lorebook" meta={lore.data?.length ? String(lore.data.length) : undefined} onClick={() => setLoreOpen(true)} />
         </div>
 
-        <SectionHead label="Cast" action={() => setChars({ open: true, id: null })} actionIcon={Users} />
+        <SectionHead label="Cast" />
         <div className="px-2 space-y-px">
+          <Link href={charactersLink()} aria-current={characters ? "page" : undefined}
+            className={cn("flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[14px] hover:bg-accent/70", characters && "bg-accent")}>
+            <Users className="size-4 text-ink-soft" /> Manage characters
+          </Link>
           {cast.data?.map(({ character: c, pinned }) => (
-            <button
+            <Link
               key={c.id}
-              onClick={() => setChars({ open: true, id: c.id })}
+              href={charactersLink(c.id)}
               className="w-full flex items-center gap-2.5 rounded-md px-2.5 py-1.5 hover:bg-accent/70 text-left"
             >
               <Avatar c={c} size={24} />
               <span className="truncate text-[14px] flex-1">{c.name}</span>
               {pinned && <BookMarked className="size-3 text-oxblood" />}
-            </button>
+            </Link>
           ))}
-          {!cast.data?.length && (
-            <button onClick={() => setChars({ open: true, id: null })} className="w-full text-left px-2.5 py-1.5 text-[13px] text-muted-foreground italic hover:text-ink">
-              Add or import characters…
-            </button>
-          )}
         </div>
       </div>
       <ConfirmDialog
@@ -130,7 +135,6 @@ export function Sidebar({ projectId, chapterId }: { projectId: string; chapterId
         onConfirm={() => { if (deleteTarget) del.mutate(deleteTarget.id); }}
       />
       <StoryBibleDialog projectId={projectId} open={bible} onOpenChange={setBible} />
-      <CharactersDialog projectId={projectId} open={chars.open} initialId={chars.id} onOpenChange={(o) => setChars({ open: o })} />
       <LoreDialog projectId={projectId} open={loreOpen} onOpenChange={setLoreOpen} />
     </nav>
   );
