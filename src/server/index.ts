@@ -1,5 +1,5 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import path from "node:path";
 import { appRouter } from "./router";
 import { runAgent, type AgentEvent, type RunRequest } from "./ai/agent";
@@ -8,6 +8,7 @@ import { db, schema } from "./db";
 import { embedCardInPng } from "./cards/png";
 import { toCardV2 } from "../shared/character";
 import { toWorldInfo } from "../shared/lorebook";
+import { docToBlocks } from "../shared/doc";
 
 function exportLorebook(projectId: string): Response {
   const project = db.select().from(schema.projects).where(eq(schema.projects.id, projectId)).get();
@@ -17,6 +18,30 @@ function exportLorebook(projectId: string): Response {
   const safe = name.replace(/[^\w\- ]+/g, "").trim() || "lorebook";
   return new Response(JSON.stringify(toWorldInfo(name, entries), null, 2), {
     headers: { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="${safe}.json"` },
+  });
+}
+
+function exportStory(projectId: string): Response {
+  const project = db.select().from(schema.projects).where(eq(schema.projects.id, projectId)).get();
+  if (!project) return new Response("Not found", { status: 404 });
+  const chapters = db.select({ title: schema.chapters.title, content: schema.chapters.content })
+    .from(schema.chapters)
+    .where(eq(schema.chapters.projectId, projectId))
+    .orderBy(asc(schema.chapters.position))
+    .all();
+  const heading = (title: string) => title.replace(/\s+/g, " ").trim();
+  const sections = [`# ${heading(project.title)}`];
+  for (const chapter of chapters) {
+    sections.push(`## ${heading(chapter.title)}`);
+    for (const block of docToBlocks(chapter.content)) {
+      if (block.type === "scene_break") sections.push("***");
+      else if (block.type === "heading") sections.push(`${"#".repeat(Math.min((block.level ?? 2) + 2, 6))} ${block.text}`);
+      else if (block.text.trim()) sections.push(block.speaker ? `${block.speaker}: ${block.text}` : block.text);
+    }
+  }
+  const filename = project.title.replace(/[^\w -]+/g, "").trim() || "story";
+  return new Response(sections.join("\n\n") + "\n", {
+    headers: { "Content-Type": "text/markdown; charset=utf-8", "Content-Disposition": `attachment; filename="${filename}.md"` },
   });
 }
 
@@ -110,6 +135,8 @@ const server = Bun.serve({
     if (sm && req.method === "POST") return summaryStream(req, sm[1]!);
     const lb = /^\/api\/projects\/([\w-]+)\/lorebook\.json$/.exec(url.pathname);
     if (lb) return exportLorebook(lb[1]!);
+    const story = /^\/api\/projects\/([\w-]+)\/export\.md$/.exec(url.pathname);
+    if (story && req.method === "GET") return exportStory(story[1]!);
 
     if (isProd) {
       const file = Bun.file(path.join(DIST, url.pathname));

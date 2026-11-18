@@ -13,7 +13,7 @@ import { nanoid } from "nanoid";
 import { db, schema } from "../db";
 import { blockPlain, blockToLine, docToBlocks, plainText, textToBlocks, type NewBlock, type SuggestionOp } from "../../shared/doc";
 import { buildContext, otherChapters, type AgentMode } from "./context";
-import { getContextLength, getModel } from "./providers";
+import { getModelInfo, getModel } from "./providers";
 import { summarizeChapter } from "./summarize";
 import { getSettings } from "../settings";
 
@@ -44,9 +44,10 @@ export type AgentEvent =
   | { t: "suggestion"; suggestion: Suggestion }
   | { t: "suggestion-removed"; id: string }
   | { t: "error"; message: string }
-  | { t: "done"; runId: string; usage?: { inputTokens?: number; outputTokens?: number } };
+  | { t: "done"; runId: string; elapsedMs: number; usage?: { inputTokens?: number; outputTokens?: number; estimatedCostUsd?: number } };
 
 export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, signal: AbortSignal) {
+  const startedAt = performance.now();
   const settings = getSettings();
   const modelRef = req.model || settings.model;
   const model = getModel(modelRef, settings);
@@ -71,7 +72,8 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
   }
 
   /* ---- 2. build the budgeted context ---- */
-  const ctxLen = await getContextLength(modelRef);
+  const modelInfo = await getModelInfo(modelRef);
+  const ctxLen = modelInfo?.contextLength;
   const budget = Math.max(4000, Math.min(settings.contextBudget, ctxLen ? Math.floor(ctxLen * 0.7) - 8000 : Infinity));
   const ctx = buildContext({ ...req, budget });
   emit({ t: "context", sections: ctx.sections, total: ctx.totalTokens, budget, model: modelRef });
@@ -393,5 +395,18 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
       model: modelRef,
     })
     .run();
-  emit({ t: "done", runId, usage: usage ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } : undefined });
+  const pricing = modelInfo?.pricing;
+  const inputTokens = usage?.inputTokens;
+  const outputTokens = usage?.outputTokens;
+  const estimatedCostUsd = pricing && inputTokens !== undefined && outputTokens !== undefined
+    && Number.isFinite(pricing.prompt) && pricing.prompt >= 0
+    && Number.isFinite(pricing.completion) && pricing.completion >= 0
+    ? (inputTokens * pricing.prompt + outputTokens * pricing.completion) / 1_000_000
+    : undefined;
+  emit({
+    t: "done",
+    runId,
+    elapsedMs: Math.round(performance.now() - startedAt),
+    usage: usage ? { inputTokens, outputTokens, estimatedCostUsd } : undefined,
+  });
 }

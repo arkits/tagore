@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import type { Editor } from "@tiptap/react";
 import { toast } from "sonner";
-import { CheckCheck, PanelLeftClose, PanelLeftOpen, RotateCcw, ScrollText, Settings2, X } from "lucide-react";
+import { CheckCheck, Download, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, RotateCcw, ScrollText, Settings2, X } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { queryClient, trpc, type Suggestion } from "@/lib/trpc";
 import { runAgent, type AgentEvent } from "@/lib/agent";
@@ -76,6 +76,29 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
       return !o;
     });
   }, []);
+  const [agentOpen, setAgentOpen] = useState(() => {
+    try {
+      return localStorage.getItem("tagore.agentSidebar") !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("tagore.agentSidebar", agentOpen ? "open" : "closed");
+    } catch {}
+  }, [agentOpen]);
+  const showAgent = useCallback(() => setAgentOpen(true), []);
+  const prepareExport = useRef<(() => Promise<boolean>) | null>(null);
+  const exportUrl = `/api/projects/${projectId}/export.md`;
+  const exportStory = async () => {
+    if (prepareExport.current && !(await prepareExport.current())) return;
+    const link = document.createElement("a");
+    link.href = exportUrl;
+    link.download = "";
+    link.click();
+  };
+
   // ⌘\ / Ctrl+\ toggles the sidebar (works while typing in the manuscript too).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -112,12 +135,30 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
         <span className="text-muted-foreground">/</span>
         <span className="font-display text-[17px] truncate">{project.data?.title}</span>
         <div className="flex-1" />
+        {project.data && (
+          <Button variant="ghost" size="icon" title="Export story as Markdown" aria-label="Export story as Markdown" onClick={exportStory}>
+            <Download className="size-4" />
+          </Button>
+        )}
         {project.data && <ThemeSwitcher project={project.data} />}
         <ModelPicker compact />
         {theme.hasDark && <ThemeToggle />}
         <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Settings">
           <Settings2 className="size-4" />
         </Button>
+        {chapterId && project.data && (
+          <Button
+            variant="ghost"
+            size="icon"
+            title={agentOpen ? "Hide right sidebar" : "Show right sidebar"}
+            aria-label={agentOpen ? "Hide right sidebar" : "Show right sidebar"}
+            aria-expanded={agentOpen}
+            aria-controls="agent-sidebar"
+            onClick={() => setAgentOpen((open) => !open)}
+          >
+            {agentOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+          </Button>
+        )}
       </header>
       <div className="flex-1 flex min-h-0">
         <div
@@ -138,6 +179,9 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
             theme={theme.id}
             pov={pov}
             participants={participants}
+            agentOpen={agentOpen}
+            onShowAgent={showAgent}
+            prepareExport={prepareExport}
           />
         ) : (
           <div className="flex-1" />
@@ -161,6 +205,9 @@ function ChapterSession({
   theme,
   pov,
   participants,
+  agentOpen,
+  onShowAgent,
+  prepareExport,
 }: {
   projectId: string;
   chapterId: string;
@@ -168,6 +215,9 @@ function ChapterSession({
   theme: string;
   pov: string;
   participants: Participant[];
+  agentOpen: boolean;
+  onShowAgent: () => void;
+  prepareExport: React.RefObject<(() => Promise<boolean>) | null>;
 }) {
   const chapter = useQuery({ ...trpc.chapters.get.queryOptions(chapterId), staleTime: Infinity });
   const pending = useQuery({ ...trpc.suggestions.pending.queryOptions(chapterId), staleTime: Infinity });
@@ -228,6 +278,14 @@ function ChapterSession({
     },
     [flush],
   );
+
+  useLayoutEffect(() => {
+    prepareExport.current = async () => {
+      await flush();
+      return pendingDoc.current === null;
+    };
+    return () => { prepareExport.current = null; };
+  }, [flush, prepareExport]);
 
   const flushRef = useRef(flush);
   flushRef.current = flush;
@@ -339,7 +397,15 @@ function ChapterSession({
   );
 
   const handlers = useRef<SuggestionHandlers>({ onAccept: accept, onReject: reject, onFocus: focus });
-  handlers.current = { onAccept: accept, onReject: reject, onFocus: (id) => (setActive(id), setTab("changes")) };
+  handlers.current = {
+    onAccept: accept,
+    onReject: reject,
+    onFocus: (id) => {
+      setActive(id);
+      setTab("changes");
+      onShowAgent();
+    },
+  };
 
   /* -------------------------------------------------- agent */
   const run = useCallback(
@@ -356,10 +422,10 @@ function ChapterSession({
         if (from >= pos && from <= end && node.attrs.id) focusId ??= node.attrs.id;
       });
       if (!empty) setWorkingRange(editor, { from, to });
+      setRunning(true);
       await flush();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
-      setRunning(true);
       setTab("agent");
       setLive({ mode, instruction: instruction || beats || "", status: [], text: "", tools: [], suggestions: 0 });
       const seen = new Set<string>();
@@ -413,7 +479,7 @@ function ChapterSession({
             setLive((l) => l && { ...l, error: e.message });
             break;
           case "done":
-            setLive((l) => l && { ...l, done: true, usage: e.usage, runId: e.runId });
+            setLive((l) => l && { ...l, done: true, usage: e.usage, elapsedMs: e.elapsedMs, runId: e.runId });
             break;
         }
       };
@@ -492,7 +558,10 @@ function ChapterSession({
                     onChange={onChange}
                     onReady={setEditor}
                     running={running}
-                    onSelectionAction={(mode, instruction) => run(mode, instruction)}
+                    onSelectionAction={(mode, instruction) => {
+                      onShowAgent();
+                      return run(mode, instruction);
+                    }}
                   />
                 </div>
                 {format === "chat" && (
@@ -525,7 +594,10 @@ function ChapterSession({
                 {list.length} suggestion{list.length === 1 ? "" : "s"}
                 {running && <span className="text-muted-foreground"> · writing…</span>}
               </span>
-              <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setTab("changes")}>
+              <Button size="sm" variant="ghost" className="rounded-full" onClick={() => {
+                setTab("changes");
+                onShowAgent();
+              }}>
                 Review
               </Button>
               <Button size="sm" variant="ghost" className="rounded-full" onClick={rejectAll} disabled={running}>
@@ -539,7 +611,7 @@ function ChapterSession({
         )}
       </main>
 
-      <aside className="w-[380px] shrink-0 border-l bg-sidebar/50 flex flex-col min-h-0">
+      <aside id="agent-sidebar" aria-label="Agent and changes" className={cn("w-[380px] shrink-0 border-l bg-sidebar/50 flex-col min-h-0", agentOpen ? "flex" : "hidden")}>
         <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col min-h-0 gap-0">
           <div className="px-3 pt-3 pb-2 border-b">
             <TabsList className="w-full">

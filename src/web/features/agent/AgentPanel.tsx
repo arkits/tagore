@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { BookOpen, Feather, Loader2, PenLine, Send, Sparkles, Square, Eye, Trash2, X } from "lucide-react";
+import { BookOpen, Feather, Loader2, PenLine, Send, Sparkles, Square, Trash2, X } from "lucide-react";
+import { toast } from "sonner";
 import { queryClient, trpc } from "@/lib/trpc";
 import { CONTEXT_MESSAGES } from "@shared/doc";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { AgentMode } from "@server/ai/context";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import type { AgentEvent } from "@/lib/agent";
 
 export type LiveRun = {
   mode: AgentMode;
@@ -19,7 +20,8 @@ export type LiveRun = {
   error?: string;
   done?: boolean;
   suggestions: number;
-  usage?: { inputTokens?: number; outputTokens?: number };
+  usage?: Extract<AgentEvent, { t: "done" }>["usage"];
+  elapsedMs?: number;
   runId?: string;
 };
 
@@ -55,7 +57,6 @@ export function AgentPanel({
   onStop: () => void;
 }) {
   const [text, setText] = useState("");
-  const [preview, setPreview] = useState(false);
   const log = useQuery(trpc.agent.log.queryOptions(chapterId));
   const history = (log.data ?? []).filter((m) => !(live?.runId && m.runId === live.runId));
   // Mirrors the context builder: only the most recent messages are replayed to the model.
@@ -76,14 +77,22 @@ export function AgentPanel({
   const clearLog = useMutation(trpc.agent.clearLog.mutationOptions({ onSettled: invalidateLog }));
   const chapter = useQuery(trpc.chapters.get.queryOptions(chapterId));
   const savedBeats = chapter.data?.notes.trim() ?? "";
+  const clearBeats = useMutation(trpc.chapters.update.mutationOptions({
+    onSuccess: async () => {
+      queryClient.setQueryData(trpc.chapters.get.queryKey(chapterId), (old) => old && { ...old, notes: "" });
+      setText((current) => current.trim() === savedBeats ? "" : current);
+      await queryClient.invalidateQueries({ queryKey: trpc.chapters.get.queryKey(chapterId) });
+    },
+    onError: (error) => toast.error(`Couldn’t clear saved beats: ${error.message}`),
+  }));
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [live?.text, live?.tools.length, live?.status.length, log.data?.length]);
+  }, [live?.text, live?.tools.length, live?.status.length, live?.done, log.data?.length]);
 
   const submit = (mode: AgentMode) => {
-    if (running) return;
+    if (running || (mode === "draft" && clearBeats.isPending)) return;
     // Draft treats the box as the chapter's ideas & beats (persisted); other modes treat it as an instruction.
     if (mode === "draft") onRun("draft", "", text.trim() || undefined);
     else onRun(mode, text);
@@ -154,7 +163,7 @@ export function AgentPanel({
             <button
               key={q.mode}
               title={q.hint}
-              disabled={running || (q.mode === "draft" && !text.trim() && !savedBeats)}
+              disabled={running || (q.mode === "draft" && (clearBeats.isPending || (!text.trim() && !savedBeats)))}
               onClick={() => submit(q.mode)}
               className="flex items-center justify-center gap-1.5 rounded-md border bg-popover/60 px-2 py-1.5 text-[13px] hover:bg-accent disabled:opacity-40 disabled:pointer-events-none"
             >
@@ -170,15 +179,29 @@ export function AgentPanel({
           </p>
         )}
         {savedBeats && (
-          <button
-            onClick={() => setText(savedBeats)}
-            title={savedBeats}
-            className="w-full flex items-baseline gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-left text-[12.5px] hover:border-ring hover:bg-accent/40 transition-colors"
-          >
-            <span className="small-caps text-[11px] text-oxblood shrink-0">beats</span>
-            <span className="font-book italic text-ink-soft truncate flex-1">{savedBeats.replace(/\s+/g, " ")}</span>
-            <span className="text-muted-foreground shrink-0">edit</span>
-          </button>
+          <div className="flex items-center rounded-md border border-dashed">
+            <button
+              onClick={() => setText(savedBeats)}
+              title={savedBeats}
+              className="min-w-0 flex flex-1 items-baseline gap-2 px-2.5 py-1.5 rounded-l-md text-left text-[12.5px] hover:bg-accent/40"
+            >
+              <span className="small-caps text-[11px] text-oxblood shrink-0">beats</span>
+              <span className="font-book italic text-ink-soft truncate flex-1">{savedBeats.replace(/\s+/g, " ")}</span>
+              <span className="text-muted-foreground shrink-0">edit</span>
+            </button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7 mr-0.5 shrink-0 text-muted-foreground hover:text-destructive"
+              title="Clear saved beats"
+              aria-label="Clear saved beats"
+              disabled={running || clearBeats.isPending}
+              onClick={() => clearBeats.mutate({ id: chapterId, notes: "" })}
+            >
+              <X className="size-3.5" />
+            </Button>
+          </div>
         )}
         <div className="relative">
           <Textarea
@@ -211,14 +234,7 @@ export function AgentPanel({
             </Button>
           )}
         </div>
-        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-          <span className="truncate">{hasSelection ? "Focused on your selection." : savedBeats ? "Draft reuses saved beats if empty." : "Draft saves the box as beats."}</span>
-          <button className="inline-flex items-center gap-1 hover:text-ink shrink-0 ml-2" onClick={() => setPreview(true)}>
-            <Eye className="size-3" /> What the agent sees
-          </button>
-        </div>
       </div>
-      <ContextPreview chapterId={chapterId} open={preview} onOpenChange={setPreview} instruction={text} />
     </div>
   );
 }
@@ -237,6 +253,10 @@ function UserBubble({ text }: { text: string }) {
 }
 
 function LiveRunView({ run, running }: { run: LiveRun; running: boolean }) {
+  const cost = run.usage?.estimatedCostUsd;
+  const duration = run.elapsedMs === undefined ? null : run.elapsedMs < 60_000
+    ? `${(run.elapsedMs / 1000).toFixed(1)}s`
+    : `${Math.floor(run.elapsedMs / 60_000)}m ${Math.floor(run.elapsedMs / 1000) % 60}s`;
   return (
     <div className="space-y-2.5">
       <UserBubble text={`[${run.mode}] ${run.instruction || ""}`} />
@@ -264,7 +284,11 @@ function LiveRunView({ run, running }: { run: LiveRun; running: boolean }) {
       {run.done && (
         <p className="text-xs text-muted-foreground">
           {run.suggestions} suggestion{run.suggestions === 1 ? "" : "s"}
-          {run.usage?.inputTokens ? ` · ${run.usage.inputTokens.toLocaleString()} in / ${run.usage.outputTokens?.toLocaleString()} out tokens` : ""}
+          {(run.usage?.inputTokens !== undefined || run.usage?.outputTokens !== undefined)
+            && ` · ${run.usage.inputTokens?.toLocaleString() ?? "—"} in / ${run.usage.outputTokens?.toLocaleString() ?? "—"} out tokens`}
+          {" · "}
+          <span title="Estimated USD cost at catalog input and output rates">{cost === undefined ? "Cost unavailable" : cost === 0 ? "$0.00 est." : cost < 0.0001 ? "<$0.0001 est." : `$${cost.toFixed(4)} est.`}</span>
+          {duration && ` · ${duration}`}
         </p>
       )}
     </div>
@@ -302,32 +326,5 @@ function ContextMeter({ ctx }: { ctx: NonNullable<LiveRun["context"]> }) {
         </ul>
       )}
     </div>
-  );
-}
-
-function ContextPreview({ chapterId, open, onOpenChange, instruction }: { chapterId: string; open: boolean; onOpenChange: (o: boolean) => void; instruction: string }) {
-  const q = useQuery({ ...trpc.chapters.contextPreview.queryOptions({ chapterId, mode: "custom", instruction }), enabled: open });
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="font-display font-normal text-2xl">What the agent sees</DialogTitle>
-        </DialogHeader>
-        {q.data && (
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            {q.data.sections.map((s) => (
-              <span key={s.name}>
-                {s.name} <span className="tabular-nums text-ink">{s.tokens.toLocaleString()}</span>
-                {s.detail ? ` (${s.detail})` : ""}
-              </span>
-            ))}
-            <span className="font-medium text-ink">Total ≈ {q.data.total.toLocaleString()} tokens</span>
-          </div>
-        )}
-        <pre className="flex-1 overflow-auto thin-scroll rounded-md border bg-paper p-4 text-xs whitespace-pre-wrap font-script leading-relaxed">
-          {q.isLoading ? "Loading…" : q.error ? q.error.message : `${q.data?.system}\n\n────────────────────────────────────────\n\n${q.data?.prompt}`}
-        </pre>
-      </DialogContent>
-    </Dialog>
   );
 }

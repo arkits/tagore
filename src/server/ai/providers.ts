@@ -88,7 +88,7 @@ export async function listModels(force = false): Promise<{ models: ModelInfo[]; 
           modelId: m.id,
           name: m.name ?? m.id,
           contextLength: m.context_length,
-          pricing: m.pricing
+          pricing: m.pricing?.prompt != null && m.pricing?.completion != null
             ? { prompt: Number(m.pricing.prompt) * 1e6, completion: Number(m.pricing.completion) * 1e6 }
             : undefined,
         })),
@@ -134,7 +134,7 @@ export async function listModels(force = false): Promise<{ models: ModelInfo[]; 
     );
   }
 
-  if (mockEnabled()) jobs.push(Promise.resolve([{ id: "mock:writer", provider: "custom" as const, modelId: "writer", name: "Mock writer (offline)", contextLength: 200_000 }]));
+  if (mockEnabled()) jobs.push(Promise.resolve([{ id: "mock:writer", provider: "custom" as const, modelId: "writer", name: "Mock writer (offline)", contextLength: 200_000, pricing: { prompt: 0, completion: 0 } }]));
 
   const results = await Promise.allSettled(jobs);
   const models: ModelInfo[] = [];
@@ -146,9 +146,10 @@ export async function listModels(force = false): Promise<{ models: ModelInfo[]; 
   return { models, errors };
 }
 
-export async function getContextLength(ref: string): Promise<number | undefined> {
+export async function getModelInfo(ref: string): Promise<ModelInfo | undefined> {
   const { models } = await listModels().catch(() => ({ models: [] as ModelInfo[] }));
-  return models.find((m) => m.id === ref)?.contextLength;
+  const { provider, modelId } = parseModelRef(ref);
+  return models.find((m) => m.id === `${provider}:${modelId}`);
 }
 
 /* --------------------------------------------------------------- connection test */
