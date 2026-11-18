@@ -511,6 +511,56 @@
 [data-story-theme="imessage"] .chat-reply { border: none; color: #0a84ff; }
 [data-story-theme="imessage"] .chat-as { border: none; background: var(--secondary); }
 
+[data-chat-only] {
+  height: var(--chat-viewport-height, 100dvh);
+  background: var(--paper);
+}
+[data-chat-only] .story-desk { overflow: hidden; }
+[data-chat-only] .chapter-layout,
+[data-chat-only] .page-flip,
+[data-chat-only] .page-inner { width: 100%; height: 100%; max-width: none; padding: 0; }
+[data-chat-only] .page-flip { perspective: none; }
+[data-chat-only] .page-inner { transform: none; transform-style: flat; transition: none; }
+[data-story-theme="imessage"] [data-chat-only] .chat-page {
+  height: 100%; min-height: 0; border: 0; border-radius: 0; box-shadow: none; animation: none;
+}
+[data-story-theme="imessage"] [data-chat-only] .chat-header {
+  flex: none; border-radius: 0; padding-top: env(safe-area-inset-top, 0px);
+}
+[data-chat-only] .chat-library-link {
+  position: absolute;
+  inset-inline-start: max(8px, env(safe-area-inset-left, 0px));
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  color: var(--primary);
+}
+[data-story-theme="imessage"] [data-chat-only] .chat-header::before,
+[data-story-theme="imessage"] [data-chat-only] .chat-who b::after,
+[data-story-theme="imessage"] [data-chat-only] .chat-composer::after,
+[data-chat-only] .chat-pov,
+[data-chat-only] .chat-thread .editor-toolbar { display: none; }
+[data-story-theme="imessage"] [data-chat-only] .chat-thread {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px));
+}
+[data-story-theme="imessage"] [data-chat-only] .chat-format .ProseMirror { min-height: 0; }
+[data-story-theme="imessage"] [data-chat-only] .chat-composer {
+  position: relative;
+  flex: none;
+  border-radius: 0;
+  border-top: 0.5px solid var(--rule);
+  padding: 8px max(12px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+}
+[data-story-theme="imessage"] [data-chat-only] .chat-input { min-height: 44px; font-size: 16px; padding-block: 11px; }
+[data-story-theme="imessage"] [data-chat-only] .chat-as,
+[data-story-theme="imessage"] [data-chat-only] .chat-reply { min-height: 44px; }
+[data-story-theme="imessage"] [data-chat-only] .chat-send { margin-bottom: 7px; }
+
 /* =====================================================================
    WHATSAPP
    ===================================================================== */

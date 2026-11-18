@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import type { Editor } from "@tiptap/react";
@@ -25,6 +25,12 @@ import type { PMDoc, StoryFormat, SuggestionOp } from "@shared/doc";
 import { cn } from "@/lib/utils";
 
 const sidebarTransition = "shrink-0 overflow-hidden flex transition-[width,opacity] duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] motion-reduce:transition-none";
+const narrowWorkspace = window.matchMedia("(width < 768px)");
+const subscribeToWorkspaceWidth = (callback: () => void) => {
+  narrowWorkspace.addEventListener("change", callback);
+  return () => narrowWorkspace.removeEventListener("change", callback);
+};
+const isNarrowWorkspace = () => narrowWorkspace.matches;
 
 type SaveState = "saved" | "dirty" | "saving" | "error";
 
@@ -45,6 +51,34 @@ export function Workspace({ projectId, chapterId, characters = false }: { projec
   const cast = useQuery(trpc.characters.forProject.queryOptions(projectId));
   const format: StoryFormat = project.data?.format === "chat" ? "chat" : "prose";
   const theme = getTheme(project.data?.theme, format);
+  const narrow = useSyncExternalStore(subscribeToWorkspaceWidth, isNarrowWorkspace);
+  const chatOnly = narrow && !characters && format === "chat" && theme.id === "imessage";
+  const workspaceRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const workspace = workspaceRef.current;
+    const viewport = window.visualViewport;
+    if (!chatOnly || !workspace || !viewport) return;
+    let frame = 0;
+    const resize = () => {
+      cancelAnimationFrame(frame);
+      if (viewport.scale !== 1) {
+        workspace.style.removeProperty("--chat-viewport-height");
+        return;
+      }
+      const thread = workspace.querySelector<HTMLElement>(".chat-thread");
+      const nearEnd = thread && thread.scrollHeight - thread.scrollTop - thread.clientHeight < 24;
+      workspace.style.setProperty("--chat-viewport-height", `${viewport.height}px`);
+      if (nearEnd) frame = requestAnimationFrame(() => { thread.scrollTop = thread.scrollHeight; });
+    };
+    resize();
+    viewport.addEventListener("resize", resize);
+    return () => {
+      cancelAnimationFrame(frame);
+      viewport.removeEventListener("resize", resize);
+      workspace.style.removeProperty("--chat-viewport-height");
+    };
+  }, [chatOnly]);
 
   // The story's theme restyles the whole app (including dialogs, which portal to <body>).
   useEffect(() => {
@@ -118,8 +152,8 @@ export function Workspace({ projectId, chapterId, characters = false }: { projec
   }, [toggleSidebar]);
 
   return (
-    <div className="h-full flex flex-col">
-      <header className="h-12 shrink-0 flex items-center gap-3 px-4 border-b bg-sidebar/60 backdrop-blur">
+    <div ref={workspaceRef} data-chat-only={chatOnly || undefined} className="h-full flex flex-col">
+      {!chatOnly && <header className="h-12 shrink-0 flex items-center gap-3 px-4 border-b bg-sidebar/60 backdrop-blur">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -157,9 +191,9 @@ export function Workspace({ projectId, chapterId, characters = false }: { projec
             {agentOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
           </Button>
         )}
-      </header>
+      </header>}
       <div className="flex-1 flex min-h-0">
-        <div
+        {!chatOnly && <div
           inert={!sidebarOpen}
           className={cn(
             sidebarTransition,
@@ -167,7 +201,7 @@ export function Workspace({ projectId, chapterId, characters = false }: { projec
           )}
         >
           <Sidebar projectId={projectId} chapterId={chapterId ?? returnChapter?.id} characters={characters} />
-        </div>
+        </div>}
         {characters ? (
           <CharactersPage key={projectId} projectId={projectId} manuscriptHref={manuscriptHref} />
         ) : chapterId && project.data ? (
@@ -179,6 +213,7 @@ export function Workspace({ projectId, chapterId, characters = false }: { projec
             theme={theme.id}
             pov={pov}
             participants={participants}
+            chatOnly={chatOnly}
             agentOpen={agentOpen}
             onShowAgent={showAgent}
             prepareExport={prepareExport}
@@ -188,7 +223,7 @@ export function Workspace({ projectId, chapterId, characters = false }: { projec
         )}
       </div>
       <SettingsDialog
-        open={settingsOpen}
+        open={settingsOpen && !chatOnly}
         onOpenChange={setSettingsOpen}
         story={project.data ? { project: project.data, onExport: exportStory } : undefined}
       />
@@ -209,6 +244,7 @@ function ChapterSession({
   theme,
   pov,
   participants,
+  chatOnly,
   agentOpen,
   onShowAgent,
   prepareExport,
@@ -219,6 +255,7 @@ function ChapterSession({
   theme: string;
   pov: string;
   participants: Participant[];
+  chatOnly: boolean;
   agentOpen: boolean;
   onShowAgent: () => void;
   prepareExport: React.RefObject<(() => Promise<boolean>) | null>;
@@ -327,16 +364,12 @@ function ChapterSession({
 
   // Follow the text as it streams in — unless the author has scrolled away in the last couple of seconds.
   const userScrollAt = useRef(0);
-  useEffect(() => {
-    const main = document.getElementById("manuscript-scroll");
-    const mark = () => (userScrollAt.current = Date.now());
-    main?.addEventListener("wheel", mark, { passive: true });
-    main?.addEventListener("touchmove", mark, { passive: true });
-    return () => {
-      main?.removeEventListener("wheel", mark);
-      main?.removeEventListener("touchmove", mark);
-    };
-  }, []);
+  const markUserScroll = () => { userScrollAt.current = Date.now(); };
+  useLayoutEffect(() => {
+    if (!chatOnly || !editor) return;
+    const thread = editor.view.dom.closest(".chat-thread");
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  }, [chatOnly, editor]);
   useEffect(() => {
     if (!editor || !Object.keys(drafts).length || Date.now() - userScrollAt.current < 2500) return;
     const els = editor.view.dom.querySelectorAll<HTMLElement>(".sg-streaming");
@@ -536,6 +569,7 @@ function ChapterSession({
 
   /* -------------------------------------------------- page turn (summary on the verso) */
   const [flipped, setFlipped] = useState(false);
+  const showSummary = flipped && !chatOnly;
   const [flipCount, setFlipCount] = useState(0);
   const turnPage = useCallback(() => {
     setFlipped((f) => !f);
@@ -547,9 +581,10 @@ function ChapterSession({
 
   return (
     <>
-      <main className="story-desk flex-1 min-w-0 overflow-y-auto thin-scroll" id="manuscript-scroll">
+      <main className="story-desk flex-1 min-w-0 overflow-y-auto thin-scroll" id="manuscript-scroll"
+        onWheel={markUserScroll} onTouchMove={markUserScroll}>
         <div className="chapter-layout mx-auto max-w-[780px] px-6 pt-8 pb-40">
-          <div className="@container chapter-title-wrap mb-6">
+          {!chatOnly && <div className="@container chapter-title-wrap mb-6">
            <div className="grid items-center gap-3 grid-cols-[minmax(0,1fr)_auto] @[560px]:grid-cols-[minmax(104px,1fr)_minmax(0,5fr)_minmax(104px,1fr)]">
             <span aria-hidden className="hidden @[560px]:block" />
             <div className="min-w-0">
@@ -572,15 +607,15 @@ function ChapterSession({
               <TooltipContent>{flipped ? "Turn back to the manuscript" : "Turn the page to read the chapter summary"}</TooltipContent>
             </Tooltip>
            </div>
-          </div>
-          <div className="page-flip" data-flipped={flipped} data-animate={flipCount > 0}>
+          </div>}
+          <div className="page-flip" data-flipped={showSummary} data-animate={!chatOnly && flipCount > 0}>
             <div className="page-inner">
               <article
                 className={cn("page-face paper story-page rounded-[3px] min-h-[80vh]", format === "chat" ? "chat-page" : "px-[72px] pt-10 pb-24")}
-                inert={flipped}
+                inert={showSummary}
                 data-group={participants.filter((p) => p.name !== pov).length > 1}
               >
-                {format === "chat" && <ChatHeader theme={theme} pov={pov} others={participants.filter((p) => p.name !== pov)} />}
+                {format === "chat" && <ChatHeader theme={theme} pov={pov} others={participants.filter((p) => p.name !== pov)} chatOnly={chatOnly} />}
                 <div className={format === "chat" ? "chat-thread" : undefined}>
                   <Manuscript
                     initial={chapter.data.content}
@@ -591,7 +626,7 @@ function ChapterSession({
                     onChange={onChange}
                     onReady={setEditor}
                     running={running}
-                    onSelectionAction={(mode, instruction) => {
+                    onSelectionAction={chatOnly ? undefined : (mode, instruction) => {
                       onShowAgent();
                       return run(mode, instruction);
                     }}
@@ -609,19 +644,19 @@ function ChapterSession({
                   />
                 )}
               </article>
-              <article className="page-face page-back paper rounded-[3px] px-[72px] pt-12 pb-16" inert={!flipped}>
-                <SummaryPage chapterId={chapterId} projectId={projectId} title={chapter.data.title} visible={flipped} />
-              </article>
+              {!chatOnly && <article className="page-face page-back paper rounded-[3px] px-[72px] pt-12 pb-16" inert={!showSummary}>
+                <SummaryPage chapterId={chapterId} projectId={projectId} title={chapter.data.title} visible={showSummary} />
+              </article>}
             </div>
           </div>
-          <div className="flex justify-between text-xs text-muted-foreground mt-3 px-1">
+          {!chatOnly && <div className="flex justify-between text-xs text-muted-foreground mt-3 px-1">
             <span>{(words ?? chapter.data.wordCount).toLocaleString()} words</span>
             <span className={cn(saveState === "error" && "text-destructive")}>
               {saveState === "saved" ? "Saved" : saveState === "saving" ? "Saving…" : saveState === "dirty" ? "Edited" : "Not saved"}
             </span>
-          </div>
+          </div>}
         </div>
-        {list.length > 0 && (
+        {!chatOnly && list.length > 0 && (
           <div className="suggest-bar sticky bottom-5 z-30 flex justify-center pointer-events-none">
             <div className="pointer-events-auto flex items-center gap-2 rounded-full border bg-popover/95 backdrop-blur pl-4 pr-1.5 py-1.5 shadow-lg">
               <span className="text-sm">
@@ -645,7 +680,7 @@ function ChapterSession({
         )}
       </main>
 
-      <div
+      {!chatOnly && <div
         id="agent-sidebar"
         inert={!agentOpen}
         className={cn(sidebarTransition, "justify-end", agentOpen ? "w-[380px] opacity-100" : "w-0 opacity-0")}
@@ -684,7 +719,7 @@ function ChapterSession({
             </TabsContent>
           </Tabs>
         </aside>
-      </div>
+      </div>}
     </>
   );
 }

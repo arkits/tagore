@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { ArrowUp, Sparkles } from "lucide-react";
+import { ArrowUp, ChevronLeft, Sparkles } from "lucide-react";
+import { Link } from "wouter";
 import { speakerHue } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 import { blockId } from "@shared/doc";
@@ -25,7 +26,7 @@ function Avatar({ p, size = 36 }: { p: Participant; size?: number }) {
 }
 
 /** The thread's header: phone contact bar, or a desktop messenger's title bar. Themes decide which parts show. */
-export function ChatHeader({ theme, others, pov }: { theme: string; others: Participant[]; pov: string }) {
+export function ChatHeader({ theme, others, pov, chatOnly }: { theme: string; others: Participant[]; pov: string; chatOnly: boolean }) {
   const who = others.length ? others.map((o) => o.name).join(", ") : "New conversation";
   const title = (TITLE[theme] ?? ((w: string) => w))(who);
   return (
@@ -46,9 +47,11 @@ export function ChatHeader({ theme, others, pov }: { theme: string; others: Part
         <span>People</span>
       </div>
       <div className="chat-contact">
-        <span className="chat-back" aria-hidden>
-          ‹
-        </span>
+        {chatOnly ? (
+          <Link href="/" className="chat-library-link" aria-label="Back to story library">
+            <ChevronLeft size={26} aria-hidden />
+          </Link>
+        ) : <span className="chat-back" aria-hidden>‹</span>}
         <span className="chat-avatars">
           {others.slice(0, 3).map((o) => (
             <Avatar key={o.name} p={o} />
