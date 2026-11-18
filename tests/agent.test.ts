@@ -96,6 +96,17 @@ test("agent: edits stream as live drafts before becoming suggestions", async () 
   expect(events.filter((e) => e.t === "draft-end").length).toBe(new Set(drafts.map((d) => d.id)).size);
 });
 
+test("agent: polish resolves prompt block labels in reads, live drafts, and suggestions", async () => {
+  const events: import("../src/server/ai/agent").AgentEvent[] = [];
+  await runAgent({ chapterId: "c1", instruction: "", mode: "polish" }, (e) => events.push(e), new AbortController().signal);
+  const results = events.filter((e) => e.t === "tool-result");
+  expect(results).toContainEqual(expect.objectContaining({ name: "read_blocks", ok: true, message: "[p:blk0] Mara arrived at dusk.\n[… 1 more]" }));
+  expect(results).toContainEqual(expect.objectContaining({ name: "replace_text", ok: true }));
+  const op = { op: "replace_text", blockId: "blk0", find: "Mara", replace: "*Mara*" };
+  expect(events).toContainEqual(expect.objectContaining({ t: "draft", op }));
+  expect(events).toContainEqual(expect.objectContaining({ t: "suggestion", suggestion: expect.objectContaining({ op }) }));
+});
+
 test("chat format: {Speaker} lines round-trip through the block model", async () => {
   const { textToBlocks, blockToLine, newBlockToNode, nodeToBlock } = await import("../src/shared/doc");
   const [b] = textToBlocks("{Mara Quell} you up?");

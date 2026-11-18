@@ -83,6 +83,18 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
 
   /* ---- 3. edit bookkeeping ---- */
   const blockById = new Map(ctx.blocks.map((b) => [b.id, b]));
+  // Models sometimes copy the prompt's block label into a tool argument.
+  const normalizeBlockId = (id: string) => {
+    if (blockById.has(id)) return id;
+    const label = /^(?:\[p:([^\[\]]+)\]|p:([^\[\]]+))$/.exec(id);
+    return label?.[1] ?? label?.[2] ?? id;
+  };
+  const insertionAnchor = (id: string) => {
+    if (id === "START") return null;
+    if (id === "LAST") return ctx.blocks.at(-1)?.id ?? null;
+    const blockId = normalizeBlockId(id);
+    return blockById.has(blockId) ? blockId : undefined;
+  };
   const touched = new Set<string>();
   let seq = 0;
   let lastInsert: { id: string; op: Extract<SuggestionOp, { op: "insert_after" }> } | null = null;
@@ -113,23 +125,24 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
   /** Turn a partially streamed tool input into a previewable op (or null if not yet resolvable). */
   const draftFor = (name: string, input: any): { op: SuggestionOp; mergeInto?: string } | null => {
     if (!input || typeof input !== "object") return null;
+    const blockId = typeof input.block_id === "string" ? normalizeBlockId(input.block_id) : undefined;
     if (name === "insert_after" && typeof input.text === "string" && typeof input.after_id === "string") {
       const blocks = textToBlocks(input.text);
       if (!blocks.length) return null;
-      if (lastInsert && (input.after_id === "LAST" || input.after_id === lastInsert.op.afterId))
+      const afterId = insertionAnchor(input.after_id);
+      if (afterId === undefined) return null;
+      if (lastInsert && (input.after_id === "LAST" || (afterId !== null && afterId === lastInsert.op.afterId)))
         return { op: { ...lastInsert.op, blocks: [...lastInsert.op.blocks, ...blocks] }, mergeInto: lastInsert.id };
-      const afterId = input.after_id === "START" ? null : input.after_id === "LAST" ? (ctx.blocks.at(-1)?.id ?? null) : input.after_id;
-      if (afterId && !blockById.has(afterId)) return null;
       return { op: { op: "insert_after", afterId, blocks } };
     }
-    if (name === "rewrite_block" && typeof input.text === "string" && blockById.has(input.block_id)) {
+    if (name === "rewrite_block" && typeof input.text === "string" && blockId && blockById.has(blockId)) {
       const blocks = textToBlocks(input.text);
-      return blocks.length ? { op: { op: "replace_block", blockId: input.block_id, blocks } } : null;
+      return blocks.length ? { op: { op: "replace_block", blockId, blocks } } : null;
     }
-    if (name === "replace_text" && typeof input.replace === "string" && typeof input.find === "string" && blockById.has(input.block_id)) {
+    if (name === "replace_text" && typeof input.replace === "string" && typeof input.find === "string" && blockId && blockById.has(blockId)) {
       const find = plainText(input.find);
-      if (!find || !plainText(blockById.get(input.block_id)!.text).includes(find)) return null;
-      return { op: { op: "replace_text", blockId: input.block_id, find, replace: input.replace } };
+      if (!find || !plainText(blockById.get(blockId)!.text).includes(find)) return null;
+      return { op: { op: "replace_text", blockId, find, replace: input.replace } };
     }
     return null;
   };
@@ -173,7 +186,8 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
       }),
       execute: async ({ block_id, find, replace, reason }, { toolCallId }) => {
         endDraft(toolCallId);
-        const block = blockById.get(block_id);
+        const blockId = normalizeBlockId(block_id);
+        const block = blockById.get(blockId);
         if (!block) return `Error: block ${block_id} does not exist.`;
         const hay = plainText(block.text);
         const needle = plainText(find);
@@ -181,9 +195,9 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
         const first = hay.indexOf(needle);
         if (first < 0) return `Error: "${needle.slice(0, 80)}" not found in block ${block_id}. Its text is:\n${hay}`;
         if (hay.indexOf(needle, first + 1) >= 0) return "Error: find text occurs more than once in the block; include more surrounding words.";
-        const err = claim([block_id]);
+        const err = claim([blockId]);
         if (err) return `Error: ${err}`;
-        create({ op: "replace_text", blockId: block_id, find: needle, replace }, reason ?? "");
+        create({ op: "replace_text", blockId, find: needle, replace }, reason ?? "");
         return "OK — suggested.";
       },
     }),
@@ -192,9 +206,10 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
       inputSchema: z.object({ block_id: z.string(), text: z.string(), reason }),
       execute: async ({ block_id, text, reason }, { toolCallId }) => {
         endDraft(toolCallId);
-        const err = claim([block_id]);
+        const blockId = normalizeBlockId(block_id);
+        const err = claim([blockId]);
         if (err) return `Error: ${err}`;
-        create({ op: "replace_block", blockId: block_id, blocks: parseBlocks(text) }, reason ?? "");
+        create({ op: "replace_block", blockId, blocks: parseBlocks(text) }, reason ?? "");
         return "OK — suggested.";
       },
     }),
@@ -205,8 +220,10 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
       execute: async ({ after_id, text, reason }, { toolCallId }) => {
         endDraft(toolCallId);
         const blocks = parseBlocks(text);
+        const afterId = insertionAnchor(after_id);
+        if (afterId === undefined) return `Error: block ${after_id} does not exist.`;
         // Appending to the same anchor (or "LAST") extends the previous insert so order is preserved.
-        if (lastInsert && (after_id === "LAST" || after_id === lastInsert.op.afterId)) {
+        if (lastInsert && (after_id === "LAST" || (afterId !== null && afterId === lastInsert.op.afterId))) {
           lastInsert.op.blocks.push(...blocks);
           const row = db
             .update(schema.suggestions)
@@ -217,11 +234,6 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
           emit({ t: "suggestion", suggestion: row });
           return `OK — appended (${lastInsert.op.blocks.length} blocks in this insert so far).`;
         }
-        let afterId: string | null;
-        if (after_id === "START") afterId = null;
-        else if (after_id === "LAST") afterId = ctx.blocks.at(-1)?.id ?? null;
-        else if (blockById.has(after_id)) afterId = after_id;
-        else return `Error: block ${after_id} does not exist.`;
         const op = { op: "insert_after" as const, afterId, blocks };
         const row = create(op, reason ?? "");
         lastInsert = { id: row.id, op };
@@ -233,9 +245,10 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
       inputSchema: z.object({ block_ids: z.array(z.string()).min(1), reason }),
       execute: async ({ block_ids, reason }, { toolCallId }) => {
         endDraft(toolCallId);
-        const err = claim(block_ids);
+        const blockIds = [...new Set(block_ids.map(normalizeBlockId))];
+        const err = claim(blockIds);
         if (err) return `Error: ${err}`;
-        create({ op: "delete_blocks", blockIds: block_ids }, reason ?? "");
+        create({ op: "delete_blocks", blockIds }, reason ?? "");
         return "OK — suggested.";
       },
     }),
@@ -246,7 +259,8 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
         count: z.number().int().min(1).max(200).default(60),
       }),
       execute: async ({ from_id, count }) => {
-        const start = from_id ? ctx.blocks.findIndex((b) => b.id === from_id) : 0;
+        const blockId = from_id ? normalizeBlockId(from_id) : undefined;
+        const start = blockId === undefined ? 0 : ctx.blocks.findIndex((b) => b.id === blockId);
         if (start < 0) return `Error: block ${from_id} not found.`;
         const slice = ctx.blocks.slice(start, start + count);
         return slice.map(blockToLine).join("\n") + (start + count < ctx.blocks.length ? `\n[… ${ctx.blocks.length - start - count} more]` : "");

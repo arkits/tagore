@@ -226,11 +226,12 @@ export function AgentPanel({
 function UserBubble({ text }: { text: string }) {
   const m = /^\[(\w+)\]\s*(.*)$/s.exec(text);
   const mode = m?.[1];
-  const body = m?.[2] ?? text;
+  const body = (m?.[2] ?? text).replace(/^\((\w+)\)$/, "").trim()
+    || (mode === "polish" ? "Polish the wording, rhythm, and clarity." : "");
   return (
     <div className="ml-6 rounded-lg rounded-tr-sm bg-secondary/80 px-3 py-2 text-sm">
       {mode && mode !== "custom" && <span className="small-caps text-[11px] text-oxblood mr-1.5">{mode}</span>}
-      {body.replace(/^\((\w+)\)$/, "")}
+      {body}
     </div>
   );
 }

@@ -379,7 +379,7 @@ function buildInstruction(req: ContextRequest, format: StoryFormat, blocks: Bloc
         ? `Continue the conversation from where it ends${last ? ` (after [p:${last.id}])` : ""}. Reply in character as the other participants — and as the screen's owner too if the scene calls for it — keeping each person's texting voice. Usually 3–15 messages. Use insert_after.`
         : `Continue the chapter from where it ends${last ? ` (after [p:${last.id}])` : ""}. Match voice and tense exactly. Use insert_after.`,
     revise: `Rewrite according to the author's direction — content, tone, length or events may change as asked.${sel} Prefer the smallest edit that achieves the goal: replace_text for phrase-level changes, rewrite_block only when most of a paragraph changes.`,
-    polish: `Line-edit for prose quality: rhythm, clarity, word choice, redundancy, clichés, continuity errors. Do NOT change plot or meaning. Use replace_text for each fix, with a short reason.${sel}`,
+    polish: `Line-edit for prose quality: rhythm, clarity, word choice, redundancy, clichés, continuity errors. Do NOT change plot or meaning. Use one replace_text call per block, combining fixes into a single exact span with a short reason.${sel}`,
     custom: `Carry out the author's request.${sel} Use the edit tools for any change to the manuscript; answer in plain text if they only asked a question.`,
   };
   parts.push(`<task>\n${modeText[req.mode]}\n</task>`);
@@ -392,7 +392,7 @@ function systemPrompt(format: StoryFormat): string {
   return `You are Tagore, a skilled co-author working inside a manuscript editor. You collaborate with the author on a long-form ${chat ? "chat story — fiction told entirely through a message thread between characters" : "work of fiction"}.
 
 HOW THE MANUSCRIPT WORKS
-- The current chapter is shown as blocks, one per line: "[p:<id>] text". Ids are stable; never invent ids.
+- The current chapter is shown as blocks, one per line: "[p:<id>] text". Ids are stable; never invent ids. For tool arguments, pass only the raw id: for "[p:abc123] text", use "abc123".
 - Inline formatting uses *italic* and **bold**. Headings start with "#", "##". A line "***" is a scene break.${
     chat
       ? `

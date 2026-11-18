@@ -82,19 +82,29 @@ export function createMockWriter() {
       }
       const { user, system, hasToolResults } = promptText(prompt as any[]);
       const chat = (system + user).includes("CHAT story") || user.includes("Format: chat story");
+      const polish = user.includes("<task>\nLine-edit for prose quality:");
       const parts: Part[] = [{ type: "stream-start", warnings: [] }];
       if (hasToolResults) {
         parts.push(
           { type: "text-start", id: "t" },
-          { type: "text-delta", id: "t", delta: system.includes("CHAT story") || user.includes("Format: chat story") ? "Jonah answered — and the light came back on." : "I tightened the opening line and carried the scene forward by two paragraphs." },
+          { type: "text-delta", id: "t", delta: polish ? "I suggested an edit to the opening beat." : chat ? "Jonah answered — and the light came back on." : "I tightened the opening line and carried the scene forward by two paragraphs." },
           { type: "text-end", id: "t" },
           { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage: usage(1200, 40) },
         );
       } else {
         const chapter = /<chapter[^>]*>([\s\S]*?)<\/chapter>/.exec(user)?.[1] ?? "";
-        const blocks = [...chapter.matchAll(/^\[p:([a-z0-9]+)\] (.*)$/gm)].map((m) => ({ id: m[1]!, text: m[2]! }));
+        const blocks = [...chapter.matchAll(/^\[p:([^\]\r\n]+)\] (.*)$/gm)].map((m) => ({ id: m[1]!, text: m[2]! }));
         const withText = blocks.filter((b) => b.text.trim() && b.text !== "***");
-        if (chat) {
+        if (polish) {
+          const first = withText[0];
+          if (first) {
+            const word = first.text.replace(/^\{[^}]+\}\s*/, "").split(/\s+/)[0]!.replace(/[*_]/g, "");
+            parts.push(
+              ...toolCall("c1", "read_blocks", { from_id: `[p:${first.id}]`, count: 1 }),
+              ...toolCall("c2", "replace_text", { block_id: `p:${first.id}`, find: word, replace: `*${word}*`, reason: "Emphasis on the opening beat." }),
+            );
+          }
+        } else if (chat) {
           parts.push(
             ...toolCall("c1", "insert_after", {
               after_id: withText.at(-1)?.id ?? blocks[0]?.id ?? "START",
