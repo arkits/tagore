@@ -33,7 +33,7 @@ const TOOL_VERB: Record<string, string> = {
 };
 
 const QUICK: { mode: AgentMode; label: string; icon: React.ElementType; hint: string }[] = [
-  { mode: "draft", label: "Draft from notes", icon: Feather, hint: "Write the chapter from your notes & ideas" },
+  { mode: "draft", label: "Draft", icon: Feather, hint: "Write the chapter from the ideas & beats in the box (saved with the chapter)" },
   { mode: "continue", label: "Continue", icon: PenLine, hint: "Carry the story forward from the end" },
   { mode: "polish", label: "Polish", icon: Sparkles, hint: "Line-edit prose (selection or chapter)" },
   { mode: "revise", label: "Revise selection", icon: Wand2, hint: "Rework the selected passage per your note" },
@@ -51,12 +51,14 @@ export function AgentPanel({
   live: LiveRun | null;
   running: boolean;
   hasSelection: boolean;
-  onRun: (mode: AgentMode, instruction: string) => void;
+  onRun: (mode: AgentMode, instruction: string, beats?: string) => void;
   onStop: () => void;
 }) {
   const [text, setText] = useState("");
   const [preview, setPreview] = useState(false);
   const log = useQuery(trpc.agent.log.queryOptions(chapterId));
+  const chapter = useQuery(trpc.chapters.get.queryOptions(chapterId));
+  const savedBeats = chapter.data?.notes.trim() ?? "";
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -65,7 +67,9 @@ export function AgentPanel({
 
   const submit = (mode: AgentMode) => {
     if (running) return;
-    onRun(mode, text);
+    // Draft treats the box as the chapter's ideas & beats (persisted); other modes treat it as an instruction.
+    if (mode === "draft") onRun("draft", "", text.trim() || undefined);
+    else onRun(mode, text);
     setText("");
   };
 
@@ -76,7 +80,7 @@ export function AgentPanel({
           <div className="text-center px-4 pt-8 pb-4">
             <p className="font-display text-xl text-ink-soft">Your co-author</p>
             <p className="font-book text-[15px] text-muted-foreground mt-2 leading-relaxed">
-              Write your ideas in <em>Notes</em>, then ask for a draft. Every change arrives as a tracked suggestion you can accept or reject.
+              Type your ideas and beats below, then press <em>Draft</em>. Every change arrives as a tracked suggestion you can accept or reject.
             </p>
           </div>
         )}
@@ -101,7 +105,7 @@ export function AgentPanel({
             <button
               key={q.mode}
               title={q.hint}
-              disabled={running || (q.mode === "revise" && !hasSelection)}
+              disabled={running || (q.mode === "revise" && !hasSelection) || (q.mode === "draft" && !text.trim() && !savedBeats)}
               onClick={() => submit(q.mode)}
               className="flex items-center gap-2 rounded-md border bg-popover/60 px-2.5 py-1.5 text-[13px] hover:bg-accent disabled:opacity-40 disabled:pointer-events-none text-left"
             >
@@ -110,6 +114,17 @@ export function AgentPanel({
             </button>
           ))}
         </div>
+        {savedBeats && (
+          <button
+            onClick={() => setText(savedBeats)}
+            title={savedBeats}
+            className="w-full flex items-baseline gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-left text-[12.5px] hover:border-ring hover:bg-accent/40 transition-colors"
+          >
+            <span className="small-caps text-[11px] text-oxblood shrink-0">beats</span>
+            <span className="font-book italic text-ink-soft truncate flex-1">{savedBeats.replace(/\s+/g, " ")}</span>
+            <span className="text-muted-foreground shrink-0">edit</span>
+          </button>
+        )}
         <div className="relative">
           <Textarea
             value={text}
@@ -117,8 +132,12 @@ export function AgentPanel({
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(hasSelection ? "revise" : "custom");
             }}
-            rows={3}
-            placeholder={hasSelection ? "What should change in the selection?" : "Direct the agent… (⌘↵ to send)"}
+            rows={4}
+            placeholder={
+              hasSelection
+                ? "What should change in the selection?"
+                : "Ideas & beats for this chapter, then Draft — or any direction for the agent (⌘↵ to send)"
+            }
             className="pr-11 resize-none font-book text-[15px] bg-popover/70"
           />
           {running ? (
@@ -138,8 +157,8 @@ export function AgentPanel({
           )}
         </div>
         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>{hasSelection ? "Selection will be the focus." : "Applies to this chapter."}</span>
-          <button className="inline-flex items-center gap-1 hover:text-ink" onClick={() => setPreview(true)}>
+          <span className="truncate">{hasSelection ? "Selection will be the focus." : savedBeats ? "Draft reuses saved beats if empty." : "Draft saves the box as beats."}</span>
+          <button className="inline-flex items-center gap-1 hover:text-ink shrink-0 ml-2" onClick={() => setPreview(true)}>
             <Eye className="size-3" /> What the agent sees
           </button>
         </div>

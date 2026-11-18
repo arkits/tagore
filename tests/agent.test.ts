@@ -74,6 +74,14 @@ test("agent: a second run supersedes pending suggestions on the same block", asy
   expect(events.filter((e) => e.t === "suggestion-removed")).toHaveLength(1);
 });
 
+test("agent: draft beats are saved as chapter notes and reach the context", async () => {
+  const events: any[] = [];
+  await runAgent({ chapterId: "c2", instruction: "", mode: "draft", beats: "— the logbook's last page is missing" }, (e) => events.push(e), new AbortController().signal);
+  const ch = db.select().from(schema.chapters).where(eq(schema.chapters.id, "c2")).get()!;
+  expect(ch.notes).toBe("— the logbook's last page is missing");
+  expect(buildContext({ chapterId: "c2", instruction: "", mode: "draft", budget: 20000 }).prompt).toContain("<chapter_notes>\n— the logbook's last page is missing");
+});
+
 test("png cards round-trip", () => {
   // 1x1 transparent PNG
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");

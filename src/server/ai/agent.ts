@@ -24,6 +24,8 @@ export type RunRequest = {
   selectionIds?: string[];
   focusId?: string | null;
   model?: string;
+  /** Ideas/beats typed with a Draft request; saved as the chapter's notes before the run. */
+  beats?: string;
 };
 
 export type Suggestion = typeof schema.suggestions.$inferSelect;
@@ -47,6 +49,8 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
   const runId = nanoid(10);
 
   /* ---- 1. refresh stale summaries of other chapters (long-range memory) ---- */
+  if (req.beats !== undefined && req.beats.trim())
+    db.update(schema.chapters).set({ notes: req.beats.trim() }).where(eq(schema.chapters.id, req.chapterId)).run();
   const chapter = db.select().from(schema.chapters).where(eq(schema.chapters.id, req.chapterId)).get();
   if (!chapter) throw new Error("Chapter not found");
   const stale = otherChapters(chapter.projectId, chapter.id).filter(
@@ -68,7 +72,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
   const ctx = buildContext({ ...req, budget });
   emit({ t: "context", sections: ctx.sections, total: ctx.totalTokens, budget, model: modelRef });
 
-  const userMsg = req.instruction.trim() || `(${req.mode})`;
+  const userMsg = req.instruction.trim() || req.beats?.trim() || `(${req.mode})`;
   db.insert(schema.agentMessages)
     .values({ id: nanoid(), chapterId: chapter.id, runId, role: "user", content: `[${req.mode}] ${userMsg}` })
     .run();

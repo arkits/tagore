@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import type { Editor } from "@tiptap/react";
 import { toast } from "sonner";
-import { CheckCheck, PanelLeftClose, PanelLeftOpen, Settings2, X } from "lucide-react";
+import { CheckCheck, PanelLeftClose, PanelLeftOpen, RotateCcw, ScrollText, Settings2, X } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { queryClient, trpc, type Suggestion } from "@/lib/trpc";
 import { runAgent, type AgentEvent } from "@/lib/agent";
@@ -11,7 +11,7 @@ import { Manuscript, type SuggestionHandlers } from "../editor/Manuscript";
 import { applySuggestion, isApplicable, revealSuggestion, setSuggestions, type EditorSuggestion } from "../editor/suggestions";
 import { AgentPanel, type LiveRun } from "../agent/AgentPanel";
 import { ChangesPanel } from "../agent/ChangesPanel";
-import { NotesPanel } from "./NotesPanel";
+import { SummaryPage } from "./SummaryPage";
 import { Sidebar } from "./Sidebar";
 import { ModelPicker } from "../settings/ModelPicker";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -258,7 +258,7 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
 
   /* -------------------------------------------------- agent */
   const run = useCallback(
-    async (mode: AgentMode, instruction: string) => {
+    async (mode: AgentMode, instruction: string, beats?: string) => {
       if (!editor || running) return;
       await flush();
       const { from, to, empty } = editor.state.selection;
@@ -273,7 +273,7 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
       abortRef.current = ctrl;
       setRunning(true);
       setTab("agent");
-      setLive({ mode, instruction, status: [], text: "", tools: [], suggestions: 0 });
+      setLive({ mode, instruction: instruction || beats || "", status: [], text: "", tools: [], suggestions: 0 });
       const seen = new Set<string>();
       const onEvent = (e: AgentEvent) => {
         switch (e.t) {
@@ -324,7 +324,7 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
         }
       };
       try {
-        await runAgent({ chapterId, instruction, mode, selectionIds, focusId }, onEvent, ctrl.signal);
+        await runAgent({ chapterId, instruction, mode, selectionIds, focusId, beats }, onEvent, ctrl.signal);
       } catch (err: any) {
         if (!ctrl.signal.aborted) setLive((l) => l && { ...l, error: err.message });
         else setLive((l) => l && { ...l, error: "Stopped." });
@@ -333,10 +333,20 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
         abortRef.current = null;
         queryClient.invalidateQueries({ queryKey: trpc.agent.log.queryKey(chapterId) });
         queryClient.invalidateQueries({ queryKey: trpc.chapters.list.queryKey(projectId) });
+        if (beats) queryClient.invalidateQueries({ queryKey: trpc.chapters.get.queryKey(chapterId) });
       }
     },
     [editor, running, flush, chapterId, projectId],
   );
+
+  /* -------------------------------------------------- page turn (summary on the verso) */
+  const [flipped, setFlipped] = useState(false);
+  const [flipCount, setFlipCount] = useState(0);
+  const turnPage = useCallback(() => {
+    setFlipped((f) => !f);
+    setFlipCount((n) => n + 1);
+    document.getElementById("manuscript-scroll")?.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
 
   if (!chapter.data) return <div className="flex-1" />;
 
@@ -344,10 +354,35 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
     <>
       <main className="flex-1 min-w-0 overflow-y-auto thin-scroll" id="manuscript-scroll">
         <div className="mx-auto max-w-[780px] px-6 pt-8 pb-40">
-          <ChapterTitle chapterId={chapterId} projectId={projectId} title={chapter.data.title} />
-          <article className="paper rounded-[3px] px-[72px] pt-10 pb-24 min-h-[80vh]">
-            <Manuscript initial={chapter.data.content} format={format} handlers={handlers} onChange={onChange} onReady={setEditor} />
-          </article>
+          <div className="relative">
+            <ChapterTitle chapterId={chapterId} projectId={projectId} title={chapter.data.title} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={turnPage}
+                  aria-pressed={flipped}
+                  className={cn(
+                    "absolute right-0 top-1/2 -translate-y-[calc(50%+12px)] inline-flex items-center gap-1.5 rounded-full border px-3 h-8 text-[13px] transition-colors",
+                    flipped ? "bg-primary text-primary-foreground border-primary" : "bg-popover/60 text-ink-soft hover:bg-accent hover:text-ink",
+                  )}
+                >
+                  {flipped ? <RotateCcw className="size-3.5" /> : <ScrollText className="size-3.5" />}
+                  {flipped ? "Text" : "Summary"}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{flipped ? "Turn back to the manuscript" : "Turn the page to read the chapter summary"}</TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="page-flip" data-flipped={flipped} data-animate={flipCount > 0}>
+            <div className="page-inner">
+              <article className="page-face paper rounded-[3px] px-[72px] pt-10 pb-24 min-h-[80vh]" inert={flipped}>
+                <Manuscript initial={chapter.data.content} format={format} handlers={handlers} onChange={onChange} onReady={setEditor} />
+              </article>
+              <article className="page-face page-back paper rounded-[3px] px-[72px] pt-12 pb-16" inert={!flipped}>
+                <SummaryPage chapterId={chapterId} projectId={projectId} title={chapter.data.title} visible={flipped} />
+              </article>
+            </div>
+          </div>
           <div className="flex justify-between text-xs text-muted-foreground mt-3 px-1">
             <span>{(words ?? chapter.data.wordCount).toLocaleString()} words</span>
             <span className={cn(saveState === "error" && "text-destructive")}>
@@ -381,7 +416,6 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
           <div className="px-3 pt-3 pb-2 border-b">
             <TabsList className="w-full">
               <TabsTrigger value="agent">Agent</TabsTrigger>
-              <TabsTrigger value="notes">Notes</TabsTrigger>
               <TabsTrigger value="changes">
                 Changes{list.length ? <span className="ml-1 rounded-full bg-oxblood text-primary-foreground text-[10px] px-1.5">{list.length}</span> : null}
               </TabsTrigger>
@@ -396,9 +430,6 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
               onRun={run}
               onStop={() => abortRef.current?.abort()}
             />
-          </TabsContent>
-          <TabsContent value="notes" className="flex-1 min-h-0 mt-0">
-            <NotesPanel chapterId={chapterId} projectId={projectId} />
           </TabsContent>
           <TabsContent value="changes" className="flex-1 min-h-0 mt-0">
             <ChangesPanel

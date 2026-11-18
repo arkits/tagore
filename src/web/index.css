@@ -423,3 +423,59 @@ html.theme-transition, html.theme-transition * {
   background: var(--paper);
   border: 1.5px solid var(--oxblood);
 }
+
+/* ------------------------------------------------------------ page turn */
+.page-flip {
+  perspective: 2600px;
+  perspective-origin: 50% 30%;
+}
+.page-inner {
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.95s cubic-bezier(0.45, 0.05, 0.2, 1);
+}
+.page-flip[data-flipped="true"] .page-inner {
+  transform: rotateY(-180deg);
+}
+.page-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  position: relative;
+}
+.page-back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+  overflow: hidden;
+}
+
+/* The sheet lifts off the desk mid-turn… */
+@keyframes page-lift-a { 0%, 100% { transform: none; } 50% { transform: translateZ(0) scale(0.955) translateY(-6px); } }
+@keyframes page-lift-b { 0%, 100% { transform: none; } 50% { transform: translateZ(0) scale(0.955) translateY(-6px); } }
+.page-flip[data-animate="true"][data-flipped="true"] { animation: page-lift-a 0.95s cubic-bezier(0.45, 0.05, 0.2, 1); }
+.page-flip[data-animate="true"][data-flipped="false"] { animation: page-lift-b 0.95s cubic-bezier(0.45, 0.05, 0.2, 1); }
+
+/* …and light rakes across it as it turns. */
+.page-face::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0;
+  background: linear-gradient(90deg, rgba(var(--shadow-ink), 0.28), rgba(var(--shadow-ink), 0) 45%, rgba(255, 255, 255, 0.12) 75%, rgba(var(--shadow-ink), 0.1));
+}
+@keyframes page-shade-a { 0% { opacity: 0; } 45% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes page-shade-b { 0% { opacity: 0; } 45% { opacity: 1; } 100% { opacity: 0; } }
+.page-flip[data-animate="true"][data-flipped="true"] .page-face::after { animation: page-shade-a 0.95s ease; }
+.page-flip[data-animate="true"][data-flipped="false"] .page-face::after { animation: page-shade-b 0.95s ease; }
+
+/* the verso reads like the back of a sheet: a touch darker, faint deckle */
+.page-back {
+  background-color: color-mix(in oklab, var(--paper) 94%, var(--ink-soft));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-inner { transition-duration: 0.01s; }
+  .page-flip[data-animate="true"], .page-flip[data-animate="true"] .page-face::after { animation: none !important; }
+}

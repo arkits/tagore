@@ -52,8 +52,8 @@ export function Manuscript({
       Placeholder.configure({
         placeholder:
           format === "script"
-            ? "INT. SOMEWHERE – NIGHT. Start writing, or ask the agent to draft from your notes…"
-            : "Begin here — or jot your ideas in Notes and ask the agent to draft…",
+            ? "INT. SOMEWHERE – NIGHT. Start writing, or give the agent your beats and press Draft…"
+            : "Begin here — or type your ideas in the agent panel and press Draft…",
       }),
     ],
     content: initial,
