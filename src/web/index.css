@@ -490,3 +490,15 @@ html.theme-transition, html.theme-transition * {
   .page-inner { transition-duration: 0.01s; }
   .page-flip[data-animate="true"], .page-flip[data-animate="true"] .page-face::after { animation: none !important; }
 }
+
+/* Chapter title: wraps instead of clipping, and scales with its column (themes set --title-size). */
+.chapter-title {
+  font-size: clamp(18px, min(var(--title-size, 34px), var(--title-fluid, 7.5cqw)), var(--title-size, 34px));
+  line-height: var(--title-lh, 1.2);
+  padding-block: 0.06em 0.16em;
+  resize: none;
+  overflow: hidden;
+  text-wrap: balance;
+  field-sizing: content;
+  min-height: 1lh;
+}

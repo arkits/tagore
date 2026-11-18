@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import type { Editor } from "@tiptap/react";
@@ -11,6 +11,7 @@ import { Manuscript, type SuggestionHandlers } from "../editor/Manuscript";
 import { applySuggestion, isApplicable, revealSuggestion, setSuggestions, type EditorSuggestion } from "../editor/suggestions";
 import { ChatComposer, ChatHeader, type Participant } from "../editor/ChatChrome";
 import { getTheme } from "@/lib/themes";
+import { ThemeSwitcher } from "../project/ThemeSwitcher";
 import { AgentPanel, type LiveRun } from "../agent/AgentPanel";
 import { ChangesPanel } from "../agent/ChangesPanel";
 import { SummaryPage } from "./SummaryPage";
@@ -110,6 +111,7 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
         <span className="text-muted-foreground">/</span>
         <span className="font-display text-[17px] truncate">{project.data?.title}</span>
         <div className="flex-1" />
+        {project.data && <ThemeSwitcher project={project.data} />}
         <ModelPicker compact />
         {theme.hasDark && <ThemeToggle />}
         <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Settings">
@@ -443,15 +445,19 @@ function ChapterSession({
     <>
       <main className="story-desk flex-1 min-w-0 overflow-y-auto thin-scroll" id="manuscript-scroll">
         <div className="mx-auto max-w-[780px] px-6 pt-8 pb-40">
-          <div className="relative">
-            <ChapterTitle chapterId={chapterId} projectId={projectId} title={chapter.data.title} />
+          <div className="@container chapter-title-wrap mb-6">
+           <div className="grid items-center gap-3 grid-cols-[minmax(0,1fr)_auto] @[560px]:grid-cols-[minmax(104px,1fr)_minmax(0,5fr)_minmax(104px,1fr)]">
+            <span aria-hidden className="hidden @[560px]:block" />
+            <div className="min-w-0">
+              <ChapterTitle chapterId={chapterId} projectId={projectId} title={chapter.data.title} />
+            </div>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   onClick={turnPage}
                   aria-pressed={flipped}
                   className={cn(
-                    "absolute right-0 top-1/2 -translate-y-[calc(50%+12px)] inline-flex items-center gap-1.5 rounded-full border px-3 h-8 text-[13px] transition-colors",
+                    "justify-self-end shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 h-8 text-[13px] transition-colors",
                     flipped ? "bg-primary text-primary-foreground border-primary" : "bg-popover/60 text-ink-soft hover:bg-accent hover:text-ink",
                   )}
                 >
@@ -461,6 +467,7 @@ function ChapterSession({
               </TooltipTrigger>
               <TooltipContent>{flipped ? "Turn back to the manuscript" : "Turn the page to read the chapter summary"}</TooltipContent>
             </Tooltip>
+           </div>
           </div>
           <div className="page-flip" data-flipped={flipped} data-animate={flipCount > 0}>
             <div className="page-inner">
@@ -565,16 +572,41 @@ function ChapterSession({
 
 function ChapterTitle({ chapterId, projectId, title }: { chapterId: string; projectId: string; title: string }) {
   const [v, setV] = useState(title);
+  const ref = useRef<HTMLTextAreaElement>(null);
   const upd = useMutation(
     trpc.chapters.update.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: trpc.chapters.list.queryKey(projectId) }) }),
   );
+  // Height follows the wrapped text. Modern engines do this in CSS (field-sizing: content); elsewhere
+  // re-measure on edits, width changes, and once theme fonts finish loading.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || CSS.supports?.("field-sizing", "content")) return;
+    const fit = () => {
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    document.fonts?.ready.then(fit);
+    return () => ro.disconnect();
+  }, [v]);
   return (
-    <input
+    <textarea
+      ref={ref}
+      rows={1}
       value={v}
-      onChange={(e) => setV(e.target.value)}
+      onChange={(e) => setV(e.target.value.replace(/\n/g, " "))}
       onBlur={() => v.trim() && v !== title && upd.mutate({ id: chapterId, title: v.trim() })}
-      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-      className="chapter-title w-full bg-transparent px-28 text-center font-display text-[34px] font-light tracking-tight text-ink outline-none mb-6 placeholder:text-muted-foreground"
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          (e.target as HTMLTextAreaElement).blur();
+        }
+      }}
+      spellCheck={false}
+      aria-label="Chapter title"
+      className="chapter-title block w-full min-w-0 bg-transparent text-center font-display font-light tracking-tight text-ink outline-none placeholder:text-muted-foreground"
       placeholder="Untitled chapter"
     />
   );

@@ -9,7 +9,8 @@
    SHARED CHAT MECHANICS (any chat theme)
    ===================================================================== */
 [data-story-format="chat"] .page-flip { max-width: var(--page-w); margin-inline: auto; }
-[data-story-format="chat"] .chapter-title { font-size: 22px; margin-bottom: 14px; }
+[data-story-format="chat"] .chapter-title { --title-size: 22px; }
+[data-story-format="chat"] .chapter-title-wrap { margin-bottom: 14px; }
 [data-story-format="chat"] .suggest-bar { bottom: 120px; }
 
 .chat-page { display: flex; flex-direction: column; padding: 0; }
@@ -139,7 +140,7 @@
 }
 [data-story-theme="manga"] ::selection { background: #ffe600; color: #111; }
 [data-story-theme="manga"] .chapter-title {
-  font-size: 52px; letter-spacing: 0.04em; color: #fff; font-weight: 400;
+  --title-size: 52px; letter-spacing: 0.04em; color: #fff; font-weight: 400;
   -webkit-text-stroke: 2.5px #111; paint-order: stroke fill; text-shadow: 4px 4px 0 #e60012;
 }
 [data-story-theme="manga"] .story-page {
@@ -215,7 +216,7 @@
 }
 @keyframes candle { 0% { opacity: 0.9; } 7% { opacity: 0.75; } 9% { opacity: 1; } 23% { opacity: 0.85; } 41% { opacity: 1; } 43% { opacity: 0.7; } 46% { opacity: 0.95; } 70% { opacity: 0.85; } 88% { opacity: 1; } }
 [data-story-theme="gothic"] .story-desk > * { position: relative; z-index: 1; }
-[data-story-theme="gothic"] .chapter-title { font-family: "UnifrakturMaguntia", serif; font-size: 46px; color: #d9b45f; text-shadow: 0 0 18px rgba(255, 170, 70, 0.25); }
+[data-story-theme="gothic"] .chapter-title { font-family: "UnifrakturMaguntia", serif; --title-size: 46px; color: #d9b45f; text-shadow: 0 0 18px rgba(255, 170, 70, 0.25); }
 [data-story-theme="gothic"] .story-page,
 [data-story-theme="gothic"] .page-back {
   border-radius: 2px;
@@ -260,7 +261,7 @@
     repeating-linear-gradient(89deg, rgba(255, 230, 190, 0.05) 0 1px, transparent 1px 23px),
     linear-gradient(180deg, #c09265, #9c6c42);
 }
-[data-story-theme="diary"] .chapter-title { font-family: "Kalam", cursive; font-weight: 700; color: #fff8ec; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.18); font-size: 40px; }
+[data-story-theme="diary"] .chapter-title { --title-lh: 1.38; font-family: "Kalam", cursive; font-weight: 700; color: #fff8ec; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.18); --title-size: 40px; }
 [data-story-theme="diary"] .page-flip { transform: rotate(-0.5deg); }
 [data-story-theme="diary"] .story-page:not(.chat-page) {
   padding: 68px 52px 68px 96px !important;
@@ -344,7 +345,7 @@
 @keyframes grid-run { to { background-position: 0 70px, 0 0; } }
 [data-story-theme="codex"] .story-desk > * { position: relative; z-index: 1; }
 [data-story-theme="codex"] .chapter-title {
-  font-family: "Orbitron Variable", sans-serif; text-transform: uppercase; letter-spacing: 0.22em; font-size: 30px; font-weight: 600;
+  font-family: "Orbitron Variable", sans-serif; text-transform: uppercase; letter-spacing: 0.22em; --title-size: 30px; --title-fluid: 5.2cqw; font-weight: 600;
   background: linear-gradient(90deg, #22e3ff, #ff3fd8, #ffe66b, #22e3ff) 0 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
   animation: holo-shift 7s linear infinite; filter: drop-shadow(0 0 10px rgba(34, 227, 255, 0.35));
 }
@@ -548,7 +549,7 @@
   --bevel-in: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
 }
 :root[data-story-theme="aim"] body { background: #008080; }
-[data-story-theme="aim"] .chapter-title { color: #fff; font-family: Tahoma, sans-serif; font-weight: 700; font-size: 18px; text-shadow: 1px 1px 0 #000; }
+[data-story-theme="aim"] .chapter-title { color: #fff; font-family: Tahoma, sans-serif; font-weight: 700; --title-size: 18px; text-shadow: 1px 1px 0 #000; }
 [data-story-theme="aim"] .chat-page { background: #c0c0c0; border-radius: 0; box-shadow: var(--bevel-out), 6px 6px 0 rgba(0, 0, 0, 0.35); padding: 3px; animation: win-open 0.32s steps(7) both; }
 @keyframes win-open { from { clip-path: inset(48% 48% 48% 48%); } to { clip-path: inset(0); } }
 [data-story-theme="aim"] .chat-titlebar {
@@ -607,7 +608,7 @@
   --page-w: 620px;
 }
 :root[data-story-theme="yahoo"] body { background: radial-gradient(circle at 20% 10%, #e3d6ff, transparent 40%), linear-gradient(160deg, #c9b8f0, #9677d6); }
-[data-story-theme="yahoo"] .chapter-title { font-family: Verdana, sans-serif; font-weight: bold; font-size: 20px; color: #400090; }
+[data-story-theme="yahoo"] .chapter-title { font-family: Verdana, sans-serif; font-weight: bold; --title-size: 20px; color: #400090; }
 [data-story-theme="yahoo"] .chat-page { background: #fff; border: 1px solid #6b45c6; border-radius: 7px 7px 4px 4px; box-shadow: 0 12px 40px -10px rgba(64, 0, 144, 0.5); animation: yim-in 0.4s ease-out both; }
 @keyframes yim-in { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: none; } }
 [data-story-theme="yahoo"] .chat-page:has(.msg-buzz) { animation: yim-in 0.4s ease-out both, buzz 0.5s 0.45s 2; }
@@ -668,7 +669,7 @@
     linear-gradient(180deg, #5fc8f5 0%, #a9e1f9 45%, #e9f8fe 100%);
   background-attachment: fixed;
 }
-[data-story-theme="skype"] .chapter-title { font-weight: 300; font-size: 26px; color: #fff; text-shadow: 0 1px 3px rgba(0, 90, 140, 0.4); }
+[data-story-theme="skype"] .chapter-title { font-weight: 300; --title-size: 26px; color: #fff; text-shadow: 0 1px 3px rgba(0, 90, 140, 0.4); }
 [data-story-theme="skype"] .chat-page { background: #fff; border-radius: 8px; border: 1px solid #a8d4ea; box-shadow: 0 20px 50px -18px rgba(0, 80, 130, 0.45); animation: sky-in 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
 @keyframes sky-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 [data-story-theme="skype"] .chat-titlebar { display: flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 7px 7px 0 0; font-size: 12px; color: #3a5566; background: linear-gradient(#f9fdff, #e3f1f8); border-bottom: 1px solid #cfe5f0; }
