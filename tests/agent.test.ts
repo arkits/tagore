@@ -104,6 +104,21 @@ test("chat format: {Speaker} lines round-trip through the block model", async ()
   expect(blockToLine(block)).toBe("[p:abc] {Mara Quell} you up?");
 });
 
+test("deleted history messages are no longer sent to the model", async () => {
+  const { appRouter } = await import("../src/server/router");
+  const caller = appRouter.createCaller({});
+  const log = await caller.agent.log("c2");
+  expect(log.length).toBeGreaterThan(0);
+  const victim = log.find((m) => m.role === "user")!;
+  const marker = victim.content.slice(0, 40);
+  const before = buildContext({ chapterId: "c2", instruction: "", mode: "custom", budget: 20000 }).prompt;
+  await caller.agent.deleteMessages({ chapterId: "c2", ids: log.map((m) => m.id) });
+  const after = buildContext({ chapterId: "c2", instruction: "", mode: "custom", budget: 20000 }).prompt;
+  expect(before).toContain("<recent_session>");
+  expect(after).not.toContain("<recent_session>");
+  expect(after).not.toContain(marker);
+});
+
 test("png cards round-trip", () => {
   // 1x1 transparent PNG
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");

@@ -312,46 +312,59 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
     liveDrafts.add(id);
     emit({ t: "draft", id, ...d });
   };
-  for await (const part of result.stream) {
-    switch (part.type) {
-      case "text-delta":
-        assistantText += part.text;
-        emit({ t: "text", delta: part.text });
-        break;
-      case "tool-input-start":
-        inputChars.set(part.id, 0);
-        inputs.set(part.id, { name: part.toolName, buf: "", at: 0 });
-        emit({ t: "tool-start", id: part.id, name: part.toolName });
-        break;
-      case "tool-input-delta": {
-        const n = (inputChars.get(part.id) ?? 0) + part.delta.length;
-        inputChars.set(part.id, n);
-        const t = inputs.get(part.id);
-        if (t) t.buf += part.delta;
-        emit({ t: "tool-progress", id: part.id, chars: n });
-        await pushDraft(part.id);
-        break;
+  // A run that is stopped or fails without producing anything leaves no trace in the history
+  // (otherwise the dead request would keep being replayed to the model as "recent session").
+  let hadError = false;
+  const dropRun = () => db.delete(schema.agentMessages).where(eq(schema.agentMessages.runId, runId)).run();
+  try {
+    for await (const part of result.stream) {
+      switch (part.type) {
+        case "text-delta":
+          assistantText += part.text;
+          emit({ t: "text", delta: part.text });
+          break;
+        case "tool-input-start":
+          inputChars.set(part.id, 0);
+          inputs.set(part.id, { name: part.toolName, buf: "", at: 0 });
+          emit({ t: "tool-start", id: part.id, name: part.toolName });
+          break;
+        case "tool-input-delta": {
+          const n = (inputChars.get(part.id) ?? 0) + part.delta.length;
+          inputChars.set(part.id, n);
+          const t = inputs.get(part.id);
+          if (t) t.buf += part.delta;
+          emit({ t: "tool-progress", id: part.id, chars: n });
+          await pushDraft(part.id);
+          break;
+        }
+        case "tool-input-end":
+          await pushDraft(part.id, true);
+          break;
+        case "tool-result": {
+          endDraft(part.toolCallId);
+          const out = String(part.output ?? "");
+          emit({ t: "tool-result", id: part.toolCallId, name: part.toolName, ok: !out.startsWith("Error"), message: out.slice(0, 300) });
+          break;
+        }
+        case "tool-error":
+          endDraft(part.toolCallId);
+          emit({ t: "tool-result", id: part.toolCallId, name: part.toolName, ok: false, message: String((part.error as any)?.message ?? part.error) });
+          break;
+        case "error":
+          hadError = true;
+          emit({ t: "error", message: String((part.error as any)?.message ?? part.error) });
+          break;
       }
-      case "tool-input-end":
-        await pushDraft(part.id, true);
-        break;
-      case "tool-result": {
-        endDraft(part.toolCallId);
-        const out = String(part.output ?? "");
-        emit({ t: "tool-result", id: part.toolCallId, name: part.toolName, ok: !out.startsWith("Error"), message: out.slice(0, 300) });
-        break;
-      }
-      case "tool-error":
-        endDraft(part.toolCallId);
-        emit({ t: "tool-result", id: part.toolCallId, name: part.toolName, ok: false, message: String((part.error as any)?.message ?? part.error) });
-        break;
-      case "error":
-        emit({ t: "error", message: String((part.error as any)?.message ?? part.error) });
-        break;
     }
+  } catch (err) {
+    if (seq === 0) dropRun();
+    throw err;
   }
-
   for (const id of [...liveDrafts]) endDraft(id);
+  if ((signal.aborted || hadError) && seq === 0 && !assistantText.trim()) {
+    dropRun();
+    return;
+  }
   if (signal.aborted) return;
   const usage = await Promise.resolve(result.totalUsage).catch(() => undefined);
   const count = seq;

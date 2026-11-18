@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { BookOpen, Feather, Loader2, PenLine, Send, Sparkles, Square, Wand2, Eye } from "lucide-react";
-import { trpc } from "@/lib/trpc";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { BookOpen, Feather, Loader2, PenLine, Send, Sparkles, Square, Wand2, Eye, Trash2, X } from "lucide-react";
+import { queryClient, trpc } from "@/lib/trpc";
+import { CONTEXT_MESSAGES } from "@shared/doc";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -57,6 +58,23 @@ export function AgentPanel({
   const [text, setText] = useState("");
   const [preview, setPreview] = useState(false);
   const log = useQuery(trpc.agent.log.queryOptions(chapterId));
+  const history = (log.data ?? []).filter((m) => !(live?.runId && m.runId === live.runId));
+  // Mirrors the context builder: only the most recent messages are replayed to the model.
+  const firstInContext = Math.max(0, (log.data?.length ?? 0) - CONTEXT_MESSAGES);
+  const invalidateLog = () => queryClient.invalidateQueries({ queryKey: trpc.agent.log.queryKey(chapterId) });
+  const remove = useMutation(
+    trpc.agent.deleteMessages.mutationOptions({
+      onMutate: ({ ids }) => {
+        const key = trpc.agent.log.queryKey(chapterId);
+        const prev = queryClient.getQueryData(key);
+        queryClient.setQueryData(key, (old: typeof log.data) => old?.filter((m) => !ids.includes(m.id)));
+        return { prev };
+      },
+      onError: (_e, _v, ctx) => ctx?.prev && queryClient.setQueryData(trpc.agent.log.queryKey(chapterId), ctx.prev),
+      onSettled: invalidateLog,
+    }),
+  );
+  const clearLog = useMutation(trpc.agent.clearLog.mutationOptions({ onSettled: invalidateLog }));
   const chapter = useQuery(trpc.chapters.get.queryOptions(chapterId));
   const savedBeats = chapter.data?.notes.trim() ?? "";
   const endRef = useRef<HTMLDivElement>(null);
@@ -84,17 +102,49 @@ export function AgentPanel({
             </p>
           </div>
         )}
-        {log.data
-          ?.filter((m) => !(live?.runId && m.runId === live.runId))
-          .map((m) =>
-            m.role === "user" ? (
-              <UserBubble key={m.id} text={m.content} />
-            ) : (
-              <p key={m.id} className="font-book text-[15px] leading-relaxed text-ink">
-                {m.content}
-              </p>
-            ),
-          )}
+        {!!history.length && (
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground -mt-1">
+            <span className="small-caps tracking-wide">History</span>
+            <button
+              onClick={() => confirm("Clear this chapter’s agent history? The agent will no longer see these messages.") && clearLog.mutate(chapterId)}
+              disabled={running}
+              className="inline-flex items-center gap-1 hover:text-destructive disabled:opacity-40"
+            >
+              <Trash2 className="size-3" /> Clear
+            </button>
+          </div>
+        )}
+        {history.map((m, i) => (
+          <div key={m.id}>
+            {i === firstInContext && i > 0 && (
+              <div className="flex items-center gap-2 text-[10.5px] text-muted-foreground my-1" title={`The last ${CONTEXT_MESSAGES} messages are sent to the agent with every request.`}>
+                <span className="h-px flex-1 bg-border" />
+                <span className="italic">agent sees from here</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+            )}
+            <div className={cn("group relative", i < firstInContext && "opacity-55")}>
+              {m.role === "user" ? (
+                <UserBubble text={m.content} />
+              ) : (
+                <p className="font-book text-[15px] leading-relaxed text-ink pr-6">{m.content}</p>
+              )}
+              <button
+                onClick={() => remove.mutate({ chapterId, ids: [m.id] })}
+                disabled={running}
+                title="Delete this message — the agent stops seeing it"
+                aria-label="Delete message"
+                className={cn(
+                  "absolute top-1 size-6 rounded-full grid place-items-center text-muted-foreground bg-popover/90 border shadow-sm",
+                  "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-destructive transition-opacity disabled:hidden",
+                  m.role === "user" ? "-left-1" : "right-0",
+                )}
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          </div>
+        ))}
         {live && <LiveRunView run={live} running={running} />}
         <div ref={endRef} />
       </div>

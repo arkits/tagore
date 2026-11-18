@@ -10,6 +10,9 @@
 
 export type StoryFormat = "prose" | "chat";
 
+/** How many of a chapter's most recent agent-history messages are replayed to the model. */
+export const CONTEXT_MESSAGES = 8;
+
 export type PMMark = { type: string; attrs?: Record<string, unknown> };
 export type PMNode = {
   type: string;

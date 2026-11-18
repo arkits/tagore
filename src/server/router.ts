@@ -195,6 +195,13 @@ const agentRouter = t.router({
   log: p.input(z.string()).query(({ input }) =>
     db.select().from(schema.agentMessages).where(eq(schema.agentMessages.chapterId, input)).orderBy(asc(schema.agentMessages.createdAt)).all(),
   ),
+  /** Remove individual messages from a chapter's agent history (they stop being sent as context). */
+  deleteMessages: p.input(z.object({ chapterId: z.string(), ids: z.array(z.string()).min(1) })).mutation(({ input }) => {
+    db.delete(schema.agentMessages)
+      .where(and(eq(schema.agentMessages.chapterId, input.chapterId), inArray(schema.agentMessages.id, input.ids)))
+      .run();
+    return { ok: true };
+  }),
   clearLog: p.input(z.string()).mutation(({ input }) => {
     db.delete(schema.agentMessages).where(eq(schema.agentMessages.chapterId, input)).run();
     return { ok: true };

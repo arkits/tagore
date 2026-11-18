@@ -20,6 +20,7 @@
 import { and, asc, eq, ne } from "drizzle-orm";
 import { db, schema } from "../db";
 import {
+  CONTEXT_MESSAGES,
   blockPlain,
   blockToLine,
   docToBlocks,
@@ -297,7 +298,7 @@ export function buildContext(req: ContextRequest): BuiltContext {
     .where(eq(schema.agentMessages.chapterId, chapter.id))
     .orderBy(asc(schema.agentMessages.createdAt))
     .all()
-    .slice(-8);
+    .slice(-CONTEXT_MESSAGES);
   const logText = log.length
     ? `<recent_session>\n${log.map((m) => `${m.role === "user" ? "Author" : "You"}: ${m.content.slice(0, 600)}`).join("\n")}\n</recent_session>`
     : "";
