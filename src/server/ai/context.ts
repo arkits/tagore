@@ -58,6 +58,7 @@ export type BuiltContext = {
   chapter: typeof schema.chapters.$inferSelect;
   /** Which blocks were shown verbatim (agent may only edit those it has seen, or read more first). */
   visibleIds: Set<string>;
+  replySpeakers: string[];
 };
 
 /* ----------------------------------------------------------------- matching */
@@ -77,9 +78,9 @@ function keyMatches(key: string, haystack: string, caseSensitive = false): boole
 
 /* ----------------------------------------------------------------- sections */
 
-function formatCard(c: CardData): string {
-  const n = c.name;
-  const parts = [`### ${n}${c.nickname ? ` (“${c.nickname}”)` : ""}`];
+function formatCard(c: CardData, reply = false): string {
+  const n = (reply && c.nickname) || c.name;
+  const parts = [`### ${n}${!reply && c.nickname ? ` (“${c.nickname}”)` : ""}`];
   if (c.description) parts.push(expandMacros(c.description, n));
   if (c.personality) parts.push(`Personality: ${expandMacros(c.personality, n)}`);
   if (c.scenario) parts.push(`Situation: ${expandMacros(c.scenario, n)}`);
@@ -198,6 +199,10 @@ export function buildContext(req: ContextRequest): BuiltContext {
     .where(eq(schema.projectCharacters.projectId, project.id))
     .all();
 
+  const pov = project.pov.trim() || "Me";
+  const replySpeakers = req.mode === "reply"
+    ? [...new Set(cast.map(({ c }) => c.card.nickname || c.name))].filter((name) => name.toLowerCase() !== pov.toLowerCase())
+    : [];
   const full: CardData[] = [];
   const roster: CardData[] = [];
   const bookEntries: { name: string; content: string; order: number; constant: boolean; keys: string[]; cs: boolean }[] = [];
@@ -220,9 +225,10 @@ export function buildContext(req: ContextRequest): BuiltContext {
   }
   if (full.length || roster.length) {
     const castBudget = Math.floor(B * 0.15);
-    const fullFit = takeWithinBudget(full, (c) => estimateTokens(formatCard(c)), castBudget);
+    const renderCard = (card: CardData) => formatCard(card, req.mode === "reply");
+    const fullFit = takeWithinBudget(full, (c) => estimateTokens(renderCard(c)), castBudget);
     const body = [
-      fullFit.kept.map(formatCard).join("\n\n"),
+      fullFit.kept.map(renderCard).join("\n\n"),
       roster.length || fullFit.dropped
         ? `### Others in the cast\n${[...roster, ...full.filter((c) => !fullFit.kept.includes(c))].map(rosterLine).join("\n")}`
         : "",
@@ -306,7 +312,7 @@ export function buildContext(req: ContextRequest): BuiltContext {
     : "";
 
   /* ---- 8. author's note + instruction ---- */
-  const tail = buildInstruction(req, project.format, blocks, project.authorsNote, project.pov.trim());
+  const tail = buildInstruction(req, project.format, blocks, project.authorsNote, pov, replySpeakers);
 
   /* ---- 6. current chapter ---- */
   const usedSoFar = sections.reduce((n, s) => n + s.tokens, 0) + estimateTokens(logText) + estimateTokens(tail) + 1800;
@@ -358,10 +364,11 @@ export function buildContext(req: ContextRequest): BuiltContext {
     project,
     chapter,
     visibleIds,
+    replySpeakers,
   };
 }
 
-function buildInstruction(req: ContextRequest, format: StoryFormat, blocks: Block[], authorsNote: string, pov: string): string {
+function buildInstruction(req: ContextRequest, format: StoryFormat, blocks: Block[], authorsNote: string, pov: string, replySpeakers: string[]): string {
   const parts: string[] = [];
   if (authorsNote.trim()) parts.push(`<authors_note>\n${authorsNote.trim()}\n</authors_note>`);
   const quoted = req.selectionText?.trim();
@@ -378,7 +385,7 @@ function buildInstruction(req: ContextRequest, format: StoryFormat, blocks: Bloc
       format === "chat"
         ? `Continue the conversation from where it ends${last ? ` (after [p:${last.id}])` : ""}. Reply in character as the other participants — and as the screen's owner too if the scene calls for it — keeping each person's texting voice. Usually 3–15 messages. Use insert_after.`
         : `Continue the chapter from where it ends${last ? ` (after [p:${last.id}])` : ""}. Match voice and tense exactly. Use insert_after.`,
-    reply: `Reply to the latest message as the other participant(s), in character. Use insert_after with after_id "LAST" and write one to three messages. Use the character’s nickname as the sender if they have one. Never speak as the phone’s owner (${pov || "Me"}), write narration, or add timestamps.`,
+    reply: `Reply to the latest message as the other participant(s), in character. Use insert_after with after_id "LAST" and write one to three messages. Never speak as the phone’s owner (${pov}), write narration, or add timestamps.${replySpeakers.length ? `\nAllowed reply senders: ${JSON.stringify(replySpeakers)}\nUse these exact names for the participants’ identities and sender labels. If earlier messages, examples, or notes suggest a different name for a participant, use the name listed here.` : ""}`,
     revise: `Rewrite according to the author's direction — content, tone, length or events may change as asked.${sel} Prefer the smallest edit that achieves the goal: replace_text for phrase-level changes, rewrite_block only when most of a paragraph changes.`,
     polish: `Line-edit for prose quality: rhythm, clarity, word choice, redundancy, clichés, continuity errors. Do NOT change plot or meaning. Use one replace_text call per block, combining fixes into a single exact span with a short reason.${sel}`,
     custom: `Carry out the author's request.${sel} Use the edit tools for any change to the manuscript; answer in plain text if they only asked a question.`,

@@ -103,13 +103,15 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
   };
   const replyAnchor = ctx.blocks.at(-1)?.id ?? null;
   const replyPov = (ctx.project.pov.trim() || "Me").toLowerCase();
+  const allowedReplySpeakers = new Set(ctx.replySpeakers);
   const touched = new Set<string>();
   let seq = 0;
   let lastInsert: { id: string; op: Extract<SuggestionOp, { op: "insert_after" }> } | null = null;
 
   const validReply = (afterId: string | null, blocks: NewBlock[]) =>
     afterId === replyAnchor && blocks.length + (lastInsert?.op.blocks.length ?? 0) <= 3
-    && blocks.every((block) => block.type === "paragraph" && block.text.trim() && block.speaker && block.speaker.toLowerCase() !== replyPov);
+    && blocks.every((block) => block.type === "paragraph" && block.text.trim() && block.speaker && block.speaker.toLowerCase() !== replyPov
+      && (!allowedReplySpeakers.size || allowedReplySpeakers.has(block.speaker)));
 
   // Earlier pending suggestions on the same block are superseded by new ones.
   const pendingByBlock = new Map<string, string[]>();
@@ -236,7 +238,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
         const afterId = insertionAnchor(after_id);
         if (afterId === undefined) return `Error: block ${after_id} does not exist.`;
         if (isReply && !validReply(afterId, blocks))
-          return 'Error: append up to three messages from the other participants after "LAST". Include each sender name in braces.';
+          return `Error: append up to three messages from the other participants after "LAST". Include each sender name in braces.${ctx.replySpeakers.length ? ` Use only: ${ctx.replySpeakers.join(", ")}.` : ""}`;
         // Appending to the same anchor (or "LAST") extends the previous insert so order is preserved.
         if (lastInsert && (after_id === "LAST" || (afterId !== null && afterId === lastInsert.op.afterId))) {
           lastInsert.op.blocks.push(...blocks);

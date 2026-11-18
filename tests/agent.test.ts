@@ -194,18 +194,26 @@ test("OpenRouter thinking follows the saved setting on the wire for supported mo
   }
 });
 
-test("chat reply streams an append suggestion from the other character", async () => {
+test("chat reply uses the linked character’s display name over an earlier sender", async () => {
   db.insert(schema.projects).values({ id: "reply-story", title: "Chat", format: "chat", pov: "Me" }).run();
+  const content = doc("{Me} Hi\n{Exa} Hello\n{Me} What’s your name?");
   db.insert(schema.chapters).values({
-    id: "reply-chapter", projectId: "reply-story", title: "Part One", position: 0, content: doc("{Me} Are you there?"),
+    id: "reply-chapter", projectId: "reply-story", title: "Part One", position: 0, content,
   }).run();
-  db.insert(schema.projectCharacters).values({ projectId: "reply-story", characterId: "m" }).run();
+  const { emptyCard } = await import("../src/shared/character");
+  db.insert(schema.characters).values({
+    id: "reply-character", name: "Exa", card: { ...emptyCard("Exa"), nickname: "Annie", description: "{{char}} enjoys wordplay." },
+  }).run();
+  db.insert(schema.projectCharacters).values({ projectId: "reply-story", characterId: "reply-character" }).run();
+  const ctx = buildContext({ chapterId: "reply-chapter", mode: "reply", instruction: "", budget: 12000 });
+  expect(ctx.prompt).toContain('Allowed reply senders: ["Annie"]');
+  expect(ctx.prompt).toContain("Annie enjoys wordplay.");
   const events: import("../src/server/ai/agent").AgentEvent[] = [];
   await runAgent({ chapterId: "reply-chapter", instruction: "", mode: "reply" }, (event) => events.push(event), new AbortController().signal);
   const replies = events.filter((event) => event.t === "suggestion");
   expect(replies.map(({ suggestion }) => suggestion.op)).toEqual([
-    { op: "insert_after", afterId: "blk0", blocks: [{ type: "paragraph", speaker: "Mara Quell", text: "hey, i'm here" }] },
+    { op: "insert_after", afterId: "blk2", blocks: [{ type: "paragraph", speaker: "Annie", text: "hey, i'm here" }] },
   ]);
   expect(events.some((event) => event.t === "draft")).toBe(true);
-  expect(db.select().from(schema.chapters).where(eq(schema.chapters.id, "reply-chapter")).get()?.content).toEqual(doc("{Me} Are you there?"));
+  expect(db.select().from(schema.chapters).where(eq(schema.chapters.id, "reply-chapter")).get()?.content).toEqual(content);
 });

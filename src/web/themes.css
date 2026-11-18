@@ -440,7 +440,7 @@
 [data-story-theme="imessage"] .chat-format .ProseMirror { font-size: 16.5px; line-height: 21px; }
 [data-story-theme="imessage"] .chat-format p.msg { padding: 7px 13px; border-radius: 19px; max-width: 74%; }
 [data-story-theme="imessage"] .chat-format p.msg-me {
-  color: #fff; background: linear-gradient(180deg, #3aa1ff, #0a84ff) fixed;
+  color: #fff; background: #0a84ff;
 }
 [data-story-theme="imessage"] .chat-format p.msg-them { color: var(--bubble-them-ink); background: var(--bubble-them); }
 [data-story-theme="imessage"] .chat-format p.msg-me.msg-last::after,
@@ -449,7 +449,7 @@
 [data-story-theme="imessage"] .chat-format p.msg-them.msg-last::after { left: -6px; background: var(--tail-them) no-repeat; }
 [data-story-theme="imessage"] .chat-format p.msg-last { margin-bottom: 6px; }
 [data-story-theme="imessage"] .chat-format p.msg-final-me { margin-bottom: 22px; }
-[data-story-theme="imessage"] .chat-format p.msg-final-me::before { content: "Delivered"; position: absolute; right: 2px; bottom: -18px; font-size: 11px; font-weight: 600; color: #8e8e93; }
+[data-story-theme="imessage"] .chat-format p.msg-final-me::before { content: "Delivered"; position: absolute; right: 2px; bottom: -18px; font-size: 11px; font-weight: 600; color: #8e8e93; white-space: nowrap; }
 [data-story-theme="imessage"] .chat-page[data-group="true"] .chat-format p.msg-them.msg-first .msg-name { color: #8e8e93; font-weight: 400; font-size: 11px; position: absolute; top: -16px; left: 12px; white-space: nowrap; }
 [data-story-theme="imessage"] .chat-page[data-group="true"] .chat-format p.msg-them.msg-first { margin-top: 22px; }
 [data-story-theme="imessage"] .chat-format h2.msg-divider { color: #8e8e93; opacity: 1; font-weight: 500; }

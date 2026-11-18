@@ -46,7 +46,11 @@ function chatLines(user: string, reply: boolean): string {
   const them = [...cast.matchAll(/^### ([^\n(“]+)|^- (.+?)(?: — |$)/gm)]
     .map((m) => (m[1] ?? m[2] ?? "").trim())
     .find((name) => name && name !== meName && name !== "Others in the cast") ?? "Jonah";
-  if (reply) return `{${them}} hey, i'm here`;
+  if (reply) {
+    const allowed = /^Allowed reply senders: (\[.*\])$/m.exec(user)?.[1];
+    const speaker = allowed ? (JSON.parse(allowed) as string[])[0] : them;
+    return `{${speaker}} hey, i'm here`;
+  }
   return [
     `{${them}} you still up?`,
     `{${them}} i went back to the lighthouse`,
