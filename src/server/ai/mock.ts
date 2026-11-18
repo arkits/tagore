@@ -107,7 +107,16 @@ export function createMockWriter() {
         const chapter = /<chapter[^>]*>([\s\S]*?)<\/chapter>/.exec(user)?.[1] ?? "";
         const blocks = [...chapter.matchAll(/^\[p:([^\]\r\n]+)\] (.*)$/gm)].map((m) => ({ id: m[1]!, text: m[2]! }));
         const withText = blocks.filter((b) => b.text.trim() && b.text !== "***");
-        if (polish) {
+        if (user.includes("[mock:repeat]")) {
+          // Reproduces a model that loses track of its own calls: a leaked "[Object]" line, then the same passage resent.
+          const anchor = withText.at(-1)?.id ?? "START";
+          const passage = "She swiped her badge and the inner seal broke with a hiss of equalized pressure.\nThe restraints held at wrist and ankle, leather over steel, drawn tight.";
+          parts.push(
+            ...toolCall("c1", "insert_after", { after_id: anchor, text: `${passage}\n[Object]` }),
+            ...toolCall("c2", "insert_after", { after_id: "LAST", text: passage }),
+            ...toolCall("c3", "insert_after", { after_id: anchor, text: `${passage}\n"Don't," Annette said, without looking up from the clipboard.` }),
+          );
+        } else if (polish) {
           const first = withText[0];
           if (first) {
             const word = first.text.replace(/^\{[^}]+\}\s*/, "").split(/\s+/)[0]!.replace(/[*_]/g, "");

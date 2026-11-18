@@ -16,6 +16,7 @@ import { buildContext, otherChapters, type AgentMode } from "./context";
 import { getModelInfo, getModel, openRouterReasoningOptions } from "./providers";
 import { summarizeChapter } from "./summarize";
 import { getSettings } from "../settings";
+import { errorInfo, openRunLog, type RunLog } from "../runlog";
 
 export type RunRequest = {
   chapterId: string;
@@ -50,12 +51,50 @@ export type AgentEvent =
   | { t: "stopped" }
   | { t: "done"; runId: string; elapsedMs: number; usage?: { inputTokens?: number; outputTokens?: number; estimatedCostUsd?: number } };
 
+const PLACEHOLDER = /^\[object(?:\s+\w+)?\]$/i;
+
+/** A paragraph's identity for duplicate detection: its opening words, so a lightly reworded resend still matches. */
+export function paragraphKey(block: NewBlock): string | null {
+  const t = plainText(block.text).toLowerCase().replace(/\s+/g, " ").trim();
+  return t.length >= 40 ? `${block.type === "paragraph" ? block.speaker ?? "" : block.type}|${t.slice(0, 80)}` : null;
+}
+
 export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, signal: AbortSignal) {
+  const runId = nanoid(10);
+  const log = openRunLog(runId);
+  log.write("start", {
+    chapterId: req.chapterId,
+    mode: req.mode,
+    model: req.model || getSettings().model,
+    instruction: req.instruction,
+    beats: req.beats,
+    trace: log.file ?? undefined,
+  });
+  const onAbort = () => log.write("abort", { reason: String(signal.reason ?? "aborted") });
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    const outcome = await runAgentInner(req, emit, signal, runId, log);
+    log.end({ outcome: signal.aborted ? "stopped" : outcome });
+  } catch (err) {
+    log.write("error", { where: "run", ...errorInfo(err) });
+    log.end({ outcome: signal.aborted ? "stopped" : "failed" });
+    throw err;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+async function runAgentInner(
+  req: RunRequest,
+  emit: (e: AgentEvent) => void,
+  signal: AbortSignal,
+  runId: string,
+  log: RunLog,
+): Promise<string> {
   const startedAt = performance.now();
   const settings = getSettings();
   const modelRef = req.model || settings.model;
   const model = getModel(modelRef, settings);
-  const runId = nanoid(10);
   emit({ t: "run-start", runId });
 
   /* ---- 1. refresh stale summaries of other chapters (long-range memory) ---- */
@@ -84,6 +123,16 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
   const ctx = buildContext({ ...req, budget });
   if (isReply && ctx.project.format !== "chat") throw new Error("Replies are only available in chat stories.");
   emit({ t: "context", sections: ctx.sections, total: ctx.totalTokens, budget, model: modelRef });
+  log.write("context", {
+    total: ctx.totalTokens,
+    budget,
+    contextLength: ctxLen,
+    blocks: ctx.blocks.length,
+    lastBlockId: ctx.blocks.at(-1)?.id,
+    sections: ctx.sections,
+    system: ctx.system,
+    prompt: ctx.prompt,
+  });
 
   const userMsg = req.instruction.trim() || req.beats?.trim() || `(${req.mode})`;
   db.insert(schema.agentMessages)
@@ -172,6 +221,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
       .returning()
       .get();
     emit({ t: "suggestion", suggestion: row });
+    log.write("suggestion", { id: row.id, op: op.op, seq: row.seq, blocks: "blocks" in op ? op.blocks.length : undefined });
     return row;
   };
 
@@ -186,7 +236,10 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
   };
 
   const parseBlocks = (text: string): NewBlock[] => {
-    const b = textToBlocks(text);
+    const all = textToBlocks(text);
+    // Some models leak a serialized placeholder ("[Object]", "[object Object]") as a line of prose.
+    const b = all.filter((block) => !PLACEHOLDER.test(block.text.trim()));
+    if (b.length < all.length) log.write("dropped-placeholder", { count: all.length - b.length });
     if (!b.length) throw new Error("No text given.");
     return b;
   };
@@ -244,7 +297,20 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
           return `Error: append up to three messages from the other participants after "LAST". Include each sender name in braces.${ctx.replySpeakers.length ? ` Use only: ${ctx.replySpeakers.join(", ")}.` : ""}`;
         // Appending to the same anchor (or "LAST") extends the previous insert so order is preserved.
         if (lastInsert && (after_id === "LAST" || (afterId !== null && afterId === lastInsert.op.afterId))) {
-          lastInsert.op.blocks.push(...blocks);
+          // Models that lose track of their earlier calls resend the same passage; keep only new paragraphs.
+          const seen = new Set(lastInsert.op.blocks.map(paragraphKey).filter(Boolean));
+          const fresh = blocks.filter((block) => {
+            const key = paragraphKey(block);
+            if (!key) return true;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          if (fresh.length < blocks.length)
+            log.write("dropped-duplicates", { suggestionId: lastInsert.id, sent: blocks.length, kept: fresh.length });
+          if (!fresh.length)
+            return `Error: every paragraph you sent is already in this insert (${lastInsert.op.blocks.length} blocks so far). Don't resend text; continue with new paragraphs after "LAST", or stop.`;
+          lastInsert.op.blocks.push(...fresh);
           const row = db
             .update(schema.suggestions)
             .set({ op: lastInsert.op })
@@ -252,7 +318,9 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
             .returning()
             .get();
           emit({ t: "suggestion", suggestion: row });
-          return `OK — appended (${lastInsert.op.blocks.length} blocks in this insert so far).`;
+          log.write("suggestion-append", { id: lastInsert.id, added: fresh.length, blocks: lastInsert.op.blocks.length });
+          const skipped = blocks.length - fresh.length;
+          return `OK — appended (${lastInsert.op.blocks.length} blocks in this insert so far).${skipped ? ` Skipped ${skipped} paragraph(s) you had already sent; don't resend text.` : ""}`;
         }
         const op = { op: "insert_after" as const, afterId, blocks };
         const row = create(op, reason ?? "");
@@ -333,6 +401,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
   });
 
   let assistantText = "";
+  let stepText = "";
   const inputChars = new Map<string, number>();
   const inputs = new Map<string, { name: string; buf: string; at: number }>();
   const DRAFTABLE = new Set(["insert_after", "rewrite_block", "replace_text"]);
@@ -357,6 +426,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
       switch (part.type) {
         case "text-delta":
           assistantText += part.text;
+          stepText += part.text;
           emit({ t: "text", delta: part.text });
           break;
         case "tool-input-start":
@@ -376,17 +446,34 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
         case "tool-input-end":
           await pushDraft(part.id, true);
           break;
+        case "tool-call":
+          log.write("tool-call", { id: part.toolCallId, name: part.toolName, input: part.input, invalid: (part as any).invalid || undefined });
+          break;
         case "tool-result": {
           endDraft(part.toolCallId);
           const out = String(part.output ?? "");
+          log.write("tool-result", { id: part.toolCallId, name: part.toolName, output: out });
           emit({ t: "tool-result", id: part.toolCallId, name: part.toolName, ok: !out.startsWith("Error"), message: out.slice(0, 300) });
           break;
         }
         case "tool-error":
           endDraft(part.toolCallId);
+          log.write("tool-error", { id: part.toolCallId, name: part.toolName, input: part.input, ...errorInfo(part.error) });
           emit({ t: "tool-result", id: part.toolCallId, name: part.toolName, ok: false, message: String((part.error as any)?.message ?? part.error) });
           break;
+        case "finish-step":
+          log.write("step", {
+            finishReason: part.finishReason,
+            rawFinishReason: part.rawFinishReason,
+            inputTokens: part.usage.inputTokens,
+            outputTokens: part.usage.outputTokens,
+            provider: part.response.modelId,
+            text: stepText || undefined,
+          });
+          stepText = "";
+          break;
         case "error":
+          log.write("error", { where: "stream", ...errorInfo(part.error) });
           hadError = true;
           emit({ t: "error", message: String((part.error as any)?.message ?? part.error) });
           break;
@@ -399,9 +486,9 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
   for (const id of [...liveDrafts]) endDraft(id);
   if ((signal.aborted || hadError) && seq === 0 && !assistantText.trim()) {
     dropRun();
-    return;
+    return hadError ? "failed" : "stopped";
   }
-  if (signal.aborted) return;
+  if (signal.aborted) return "stopped";
   const usage = await Promise.resolve(result.totalUsage).catch(() => undefined);
   const count = seq;
   db.insert(schema.agentMessages)
@@ -422,10 +509,12 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
     && Number.isFinite(pricing.completion) && pricing.completion >= 0
     ? (inputTokens * pricing.prompt + outputTokens * pricing.completion) / 1_000_000
     : undefined;
+  log.write("done", { suggestions: count, inputTokens, outputTokens, estimatedCostUsd, hadError: hadError || undefined });
   emit({
     t: "done",
     runId,
     elapsedMs: Math.round(performance.now() - startedAt),
     usage: usage ? { inputTokens, outputTokens, estimatedCostUsd } : undefined,
   });
+  return hadError ? "failed" : "done";
 }

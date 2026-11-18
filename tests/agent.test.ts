@@ -120,6 +120,33 @@ test("agent: tool calls become validated suggestions, never document writes", as
   expect(events.some((e) => e.t === "status")).toBe(false);
 });
 
+test("agent: resent paragraphs and placeholder lines don't pile into one insert; the run is traced", async () => {
+  const { mkdtempSync, readdirSync, readFileSync } = await import("node:fs");
+  const logDir = mkdtempSync(path.join(tmpdir(), "tagore-logs-"));
+  process.env.TAGORE_LOG_DIR = logDir;
+  // TAGORE_LOG_DIR is read at import time, so check the trace through a fresh module instance.
+  const { openRunLog } = await import(`../src/server/runlog?${Date.now()}`);
+  const probe = openRunLog("probe");
+  probe.write("start", { x: 1 });
+  probe.end({ outcome: "done" });
+  const day = readdirSync(path.join(logDir, "agent"))[0]!;
+  const lines = readFileSync(path.join(logDir, "agent", day, "probe.ndjson"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  expect(lines.map((l) => l.event)).toEqual(["start", "end"]);
+  delete process.env.TAGORE_LOG_DIR;
+
+  db.insert(schema.chapters).values({ id: "c9", projectId: "p1", title: "Nine", position: 9, content: doc("The lab was quiet.") }).run();
+  const events: any[] = [];
+  await runAgent({ chapterId: "c9", instruction: "[mock:repeat]", mode: "continue" }, (e) => events.push(e), new AbortController().signal);
+  const inserts = events.filter((e) => e.t === "suggestion" && e.suggestion.op.op === "insert_after").map((e) => e.suggestion);
+  const final = inserts.at(-1)!.op.blocks.map((b: any) => b.text);
+  expect(final).toHaveLength(3);
+  expect(final).not.toContain("[Object]");
+  expect(final[2]).toStartWith(`"Don't," Annette said`);
+  const results = events.filter((e) => e.t === "tool-result" && e.name === "insert_after");
+  expect(results[1]).toMatchObject({ ok: false, message: expect.stringContaining("already in this insert") });
+  expect(results[2].message).toContain("Skipped 2 paragraph(s)");
+});
+
 test("agent: a second run supersedes pending suggestions on the same block", async () => {
   const events: any[] = [];
   await runAgent({ chapterId: "c2", instruction: "again", mode: "continue" }, (e) => events.push(e), new AbortController().signal);
