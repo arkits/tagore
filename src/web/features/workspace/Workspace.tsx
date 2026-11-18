@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { CheckCheck, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, RotateCcw, ScrollText, Settings2, X } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { queryClient, trpc, type Suggestion } from "@/lib/trpc";
-import { runAgent, type AgentEvent } from "@/lib/agent";
+import { attachAgent, runAgent, stopAgent, type AgentEvent } from "@/lib/agent";
 import { Manuscript, type SuggestionHandlers } from "../editor/Manuscript";
 import { applySuggestion, isApplicable, revealSuggestion, setSuggestions, type EditorSuggestion } from "../editor/suggestions";
 import { setWorkingRange } from "../editor/selectionMark";
@@ -369,7 +369,9 @@ function ChapterSession({
       // Runs only on unmount (chapter switch / leaving the project).
       window.removeEventListener("beforeunload", before);
       before();
+      // Detach only: the run itself keeps going on the server.
       abortRef.current?.abort();
+      abortRef.current = null;
     };
   }, []);
 
@@ -475,33 +477,32 @@ function ChapterSession({
   };
 
   /* -------------------------------------------------- agent */
-  const run = useCallback(
-    async (mode: AgentMode, instruction: string) => {
-      if (!editor || running || abortRef.current) return;
-      const replying = mode === "reply";
-      // Capture the selection before anything async: the bubble collapses it right after calling us.
-      const { from, to, empty: selectionEmpty } = editor.state.selection;
-      const empty = replying || selectionEmpty;
-      const selectionText = empty ? undefined : editor.state.doc.textBetween(from, to, "\n");
-      const selectionIds: string[] = [];
-      let focusId: string | null = null;
-      editor.state.doc.forEach((node, pos) => {
-        const end = pos + node.nodeSize;
-        if (!empty && end > from && pos < to && node.attrs.id) selectionIds.push(node.attrs.id);
-        if (from >= pos && from <= end && node.attrs.id) focusId ??= node.attrs.id;
-      });
-      if (!empty) setWorkingRange(editor, { from, to });
-      setRunning(true);
+  // Runs live on the server. This component only follows one: leaving or refreshing the page detaches,
+  // and mounting reattaches to whatever is still running for the chapter (with its events replayed).
+  const connectedRef = useRef(false);
+  const follow = useCallback(
+    async (
+      initialMode: AgentMode | null,
+      connect: (onEvent: (e: AgentEvent) => void, signal: AbortSignal) => Promise<boolean>,
+      prepare?: (signal: AbortSignal) => Promise<void>,
+    ) => {
+      if (!editor || abortRef.current) return;
       const ctrl = new AbortController();
       abortRef.current = ctrl;
-      setTab("agent");
-      setLive({ mode, instruction, status: [], text: "", tools: [], suggestions: 0 });
+      connectedRef.current = false;
+      let replying = initialMode === "reply";
       const seen = new Set<string>();
       let reply: EditorSuggestion | undefined;
       let replyCompleted = false;
       let replyFailed = false;
+      let stopped = false;
       const onEvent = (e: AgentEvent) => {
         switch (e.t) {
+          case "run-info":
+            replying = e.mode === "reply";
+            setRunning(true);
+            setLive((l) => (l && !l.runId && l.mode === e.mode ? l : { mode: e.mode, instruction: e.instruction, status: [], text: "", tools: [], suggestions: 0 }));
+            break;
           case "run-start":
             setLive((l) => l && { ...l, runId: e.runId });
             break;
@@ -555,6 +556,10 @@ function ChapterSession({
             if (replying) toast.error(e.message);
             setLive((l) => l && { ...l, error: e.message });
             break;
+          case "stopped":
+            stopped = true;
+            setLive((l) => l && { ...l, error: "Stopped." });
+            break;
           case "done":
             replyCompleted = true;
             setLive((l) => l && { ...l, done: true, usage: e.usage, elapsedMs: e.elapsedMs, runId: e.runId });
@@ -562,11 +567,12 @@ function ChapterSession({
         }
       };
       try {
-        await flush();
+        await prepare?.(ctrl.signal);
         if (ctrl.signal.aborted) return;
-        if (replying && pendingDoc.current) throw new Error("Save the latest message before requesting a reply.");
-        await runAgent({ chapterId, instruction, mode, selectionIds, selectionText, focusId: replying ? null : focusId }, onEvent, ctrl.signal);
-        if (replying && replyCompleted && !replyFailed && !ctrl.signal.aborted && !editor.isDestroyed) {
+        connectedRef.current = true;
+        const attached = await connect(onEvent, ctrl.signal);
+        if (!attached || ctrl.signal.aborted) return;
+        if (replying && replyCompleted && !replyFailed && !stopped && !editor.isDestroyed) {
           // A reply may only be applied automatically at the current end of the thread.
           const tailId = editor.state.doc.lastChild?.attrs.id ?? null;
           if (reply?.op.op === "insert_after" && reply.op.afterId === tailId && applySuggestion(editor, reply.op)) {
@@ -578,24 +584,79 @@ function ChapterSession({
           } else if (!reply) {
             toast.message("No reply was generated. Use the sparkle button to try again.");
           }
+        } else if (!replyCompleted && !replyFailed && !stopped) {
+          setLive((l) => l && { ...l, error: "The run ended unexpectedly." });
         }
       } catch (err: any) {
         if (!ctrl.signal.aborted) {
           if (replying) toast.error(err.message);
           setLive((l) => l && { ...l, error: err.message });
-        }
-        else setLive((l) => l && { ...l, error: "Stopped." });
+        } else if (abortRef.current === ctrl) setLive((l) => l && { ...l, error: "Stopped." });
       } finally {
+        // A follower that was detached (unmount, StrictMode remount) leaves the state to its successor.
+        if (abortRef.current !== ctrl) return;
         if (!editor.isDestroyed) setWorkingRange(editor, null);
         setDrafts({});
         setRunning(false);
         abortRef.current = null;
+        connectedRef.current = false;
         queryClient.invalidateQueries({ queryKey: trpc.agent.log.queryKey(chapterId) });
         queryClient.invalidateQueries({ queryKey: trpc.chapters.list.queryKey(projectId) });
       }
     },
-    [editor, running, flush, chapterId, projectId, resolve],
+    [editor, flush, chapterId, projectId, resolve],
   );
+
+  const run = useCallback(
+    async (mode: AgentMode, instruction: string) => {
+      if (!editor || running || abortRef.current) return;
+      const replying = mode === "reply";
+      // Capture the selection before anything async: the bubble collapses it right after calling us.
+      const { from, to, empty: selectionEmpty } = editor.state.selection;
+      const empty = replying || selectionEmpty;
+      const selectionText = empty ? undefined : editor.state.doc.textBetween(from, to, "\n");
+      const selectionIds: string[] = [];
+      let focusId: string | null = null;
+      editor.state.doc.forEach((node, pos) => {
+        const end = pos + node.nodeSize;
+        if (!empty && end > from && pos < to && node.attrs.id) selectionIds.push(node.attrs.id);
+        if (from >= pos && from <= end && node.attrs.id) focusId ??= node.attrs.id;
+      });
+      if (!empty) setWorkingRange(editor, { from, to });
+      setRunning(true);
+      setTab("agent");
+      setLive({ mode, instruction, status: [], text: "", tools: [], suggestions: 0 });
+      await follow(
+        mode,
+        async (onEvent, signal) => {
+          await runAgent({ chapterId, instruction, mode, selectionIds, selectionText, focusId: replying ? null : focusId }, onEvent, signal);
+          return true;
+        },
+        async () => {
+          await flush();
+          if (replying && pendingDoc.current) throw new Error("Save the latest message before requesting a reply.");
+        },
+      );
+    },
+    [editor, running, follow, flush, chapterId],
+  );
+
+  // Pick up a run that is still going on the server (after a refresh, or coming back to this chapter).
+  const pendingLoaded = pending.isSuccess;
+  useEffect(() => {
+    if (!editor || !pendingLoaded || abortRef.current) return;
+    void follow(null, (onEvent, signal) => attachAgent(chapterId, onEvent, signal));
+  }, [editor, pendingLoaded, follow, chapterId]);
+
+  const stop = useCallback(async () => {
+    // Before the request is out there's nothing on the server to stop.
+    if (!connectedRef.current) return abortRef.current?.abort();
+    // The run may not be registered yet if Stop is pressed right after starting it.
+    for (let i = 0; i < 5 && abortRef.current; i++) {
+      if (await stopAgent(chapterId).catch(() => false)) return;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }, [chapterId]);
 
   /* -------------------------------------------------- page turn (summary on the verso) */
   const [flipped, setFlipped] = useState(false);
@@ -732,7 +793,7 @@ function ChapterSession({
                 running={running}
                 hasSelection={hasSelection}
                 onRun={run}
-                onStop={() => abortRef.current?.abort()}
+                onStop={stop}
               />
             </TabsContent>
             <TabsContent value="changes" className="flex-1 min-h-0 mt-0">

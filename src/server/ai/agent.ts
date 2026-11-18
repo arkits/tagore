@@ -32,6 +32,8 @@ export type RunRequest = {
 export type Suggestion = typeof schema.suggestions.$inferSelect;
 
 export type AgentEvent =
+  /** First event of every job: what was asked, so a reattaching client can rebuild the panel. */
+  | { t: "run-info"; mode: AgentMode; instruction: string; startedAt: number }
   | { t: "run-start"; runId: string }
   | { t: "status"; message: string }
   | { t: "context"; sections: { name: string; tokens: number; detail?: string }[]; total: number; budget: number; model: string }
@@ -45,6 +47,7 @@ export type AgentEvent =
   | { t: "suggestion"; suggestion: Suggestion }
   | { t: "suggestion-removed"; id: string }
   | { t: "error"; message: string }
+  | { t: "stopped" }
   | { t: "done"; runId: string; elapsedMs: number; usage?: { inputTokens?: number; outputTokens?: number; estimatedCostUsd?: number } };
 
 export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, signal: AbortSignal) {

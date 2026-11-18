@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { queryClient, trpc } from "@/lib/trpc";
-import { streamSummary } from "@/lib/agent";
+import { attachSummary, streamSummary } from "@/lib/agent";
 import { cn } from "@/lib/utils";
 
 /**
@@ -45,15 +45,26 @@ export function SummaryPage({ chapterId, projectId, title, visible }: { chapterI
   // Stream the summary onto the page as it's written.
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  useEffect(() => () => abortRef.current?.abort(), []);
-  const summarize = async () => {
-    if (streaming) return;
+  // The summary is written on the server; leaving the page only stops listening to it.
+  const follow = async (
+    connect: (onDelta: (d: string) => void, signal: AbortSignal) => Promise<string | null>,
+  ) => {
+    if (abortRef.current) return;
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    setStreaming(true);
-    setSummary("");
+    let started = false;
+    const onDelta = (d: string) => {
+      if (!started) {
+        started = true;
+        loaded.current = true; // don't let the saved (older) summary overwrite the one being written
+        setStreaming(true);
+        setSummary("");
+      }
+      setSummary((s) => s + d);
+    };
     try {
-      await streamSummary(chapterId, (d) => setSummary((s) => s + d), ctrl.signal);
+      if ((await connect(onDelta, ctrl.signal)) === null) return;
+      loaded.current = true;
       queryClient.invalidateQueries({ queryKey: trpc.chapters.list.queryKey(projectId) });
       queryClient.invalidateQueries({ queryKey: trpc.chapters.get.queryKey(chapterId) });
     } catch (e: any) {
@@ -62,8 +73,25 @@ export function SummaryPage({ chapterId, projectId, title, visible }: { chapterI
         setSummary(chapter.data?.summary ?? "");
       }
     } finally {
-      setStreaming(false);
+      if (abortRef.current === ctrl) {
+        abortRef.current = null;
+        setStreaming(false);
+      }
     }
+  };
+  useEffect(() => {
+    void follow((onDelta, signal) => attachSummary(chapterId, onDelta, signal));
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chapterId]);
+  const summarize = () => {
+    if (streaming) return;
+    setStreaming(true);
+    setSummary("");
+    void follow(async (onDelta, signal) => streamSummary(chapterId, onDelta, signal));
   };
 
   const stale = !!meta?.stale && (meta?.wordCount ?? 0) > 0;

@@ -4,6 +4,7 @@ import path from "node:path";
 import { appRouter } from "./router";
 import { runAgent, type AgentEvent, type RunRequest } from "./ai/agent";
 import { summarizeChapter } from "./ai/summarize";
+import { activeJob, Job, JobBusyError, startJob, stopJob } from "./jobs";
 import { db, schema } from "./db";
 import { embedCardInPng } from "./cards/png";
 import { toCardV2 } from "../shared/character";
@@ -49,59 +50,62 @@ const PORT = Number(process.env.TAGORE_PORT ?? (process.env.NODE_ENV === "produc
 const DIST = path.resolve(import.meta.dir, "../../dist");
 const isProd = process.env.NODE_ENV === "production";
 
-/** NDJSON stream of agent events. Client aborts by closing the request. */
-function agentStream(req: Request): Response {
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      const emit = (e: AgentEvent) => {
-        try {
-          controller.enqueue(encoder.encode(JSON.stringify(e) + "\n"));
-        } catch {
-          /* client went away */
-        }
-      };
-      try {
-        const body = (await req.json()) as RunRequest;
-        await runAgent(body, emit, req.signal);
-      } catch (err: any) {
-        if (!req.signal.aborted) emit({ t: "error", message: err?.message ?? String(err) });
-      } finally {
-        try {
-          controller.close();
-        } catch {}
-      }
-    },
-  });
-  return new Response(stream, {
-    headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache", "X-Accel-Buffering": "no" },
-  });
+const ndjson = { "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache", "X-Accel-Buffering": "no" };
+const plain = { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache", "X-Accel-Buffering": "no" };
+const agentKey = (chapterId: string) => `agent:${chapterId}`;
+const summaryKey = (chapterId: string) => `summary:${chapterId}`;
+const encodeEvent = (e: AgentEvent) => JSON.stringify(e) + "\n";
+
+/** Agent runs belong to the server. Only the newest preview and progress count of each tool call are replayed. */
+const agentJobOptions = {
+  slot: (e: AgentEvent) => (e.t === "draft" ? `draft:${e.id}` : e.t === "tool-progress" ? `progress:${e.id}` : undefined),
+  clears: (e: AgentEvent) => (e.t === "draft-end" ? `draft:${e.id}` : undefined),
+  onError: (err: any, job: Job<AgentEvent>) => {
+    if (!job.signal.aborted) job.emit({ t: "error", message: err?.message ?? String(err) });
+  },
+};
+
+/** Start an agent run and stream its NDJSON events. Closing the request only detaches; the run continues. */
+async function startAgent(req: Request): Promise<Response> {
+  const body = (await req.json()) as RunRequest;
+  let job: Job<AgentEvent>;
+  try {
+    job = startJob<AgentEvent>(
+      agentKey(body.chapterId),
+      async (emit, signal) => {
+        emit({ t: "run-info", mode: body.mode, instruction: body.instruction, startedAt: Date.now() });
+        await runAgent(body, emit, signal);
+        if (signal.aborted) emit({ t: "stopped" });
+      },
+      agentJobOptions,
+    );
+  } catch (err) {
+    if (err instanceof JobBusyError) return new Response("The agent is already working on this chapter.", { status: 409 });
+    throw err;
+  }
+  return new Response(job.stream(encodeEvent, req.signal), { headers: ndjson });
 }
 
-/** Stream a chapter summary as plain text chunks; a final "\u0000ERR:" line signals failure. */
-function summaryStream(req: Request, chapterId: string): Response {
-  const enc = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      try {
-        await summarizeChapter(chapterId, req.signal, (d) => {
-          try {
-            controller.enqueue(enc.encode(d));
-          } catch {}
-        });
-      } catch (err: any) {
-        if (!req.signal.aborted)
-          try {
-            controller.enqueue(enc.encode(`\u0000ERR:${err?.message ?? err}`));
-          } catch {}
-      } finally {
-        try {
-          controller.close();
-        } catch {}
-      }
-    },
-  });
-  return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache", "X-Accel-Buffering": "no" } });
+/** Reattach to the chapter's running agent job: full replay, then live. 204 when nothing is running. */
+function attachAgent(req: Request, chapterId: string): Response {
+  const job = activeJob<AgentEvent>(agentKey(chapterId));
+  if (!job) return new Response(null, { status: 204 });
+  return new Response(job.stream(encodeEvent, req.signal), { headers: ndjson });
+}
+
+/** Summary stream: plain text chunks; a final "\u0000ERR:" chunk signals failure. Starts a job, or joins the running one. */
+function summaryStream(req: Request, chapterId: string, start: boolean): Response {
+  let job = activeJob<string>(summaryKey(chapterId));
+  if (!job && start)
+    job = startJob<string>(
+      summaryKey(chapterId),
+      async (emit, signal) => {
+        await summarizeChapter(chapterId, signal, emit);
+      },
+      { onError: (err: any, j) => j.emit(`\u0000ERR:${err?.message ?? err}`) },
+    );
+  if (!job) return new Response(null, { status: 204 });
+  return new Response(job.stream((d) => d, req.signal), { headers: plain });
 }
 
 function exportCharacter(id: string, format: string): Response {
@@ -128,11 +132,14 @@ const server = Bun.serve({
     if (url.pathname.startsWith("/api/trpc")) {
       return fetchRequestHandler({ endpoint: "/api/trpc", req, router: appRouter, createContext: () => ({}) });
     }
-    if (url.pathname === "/api/agent/run" && req.method === "POST") return agentStream(req);
+    if (url.pathname === "/api/agent/run" && req.method === "POST") return startAgent(req);
+    const agent = /^\/api\/agent\/chapters\/([\w-]+)\/(stream|stop)$/.exec(url.pathname);
+    if (agent?.[2] === "stream" && req.method === "GET") return attachAgent(req, agent[1]!);
+    if (agent?.[2] === "stop" && req.method === "POST") return Response.json({ stopped: stopJob(agentKey(agent[1]!)) });
     const exp = /^\/api\/characters\/([\w-]+)\/export\.(png|json)$/.exec(url.pathname);
     if (exp) return exportCharacter(exp[1]!, exp[2]!);
     const sm = /^\/api\/chapters\/([\w-]+)\/summarize$/.exec(url.pathname);
-    if (sm && req.method === "POST") return summaryStream(req, sm[1]!);
+    if (sm && (req.method === "POST" || req.method === "GET")) return summaryStream(req, sm[1]!, req.method === "POST");
     const lb = /^\/api\/projects\/([\w-]+)\/lorebook\.json$/.exec(url.pathname);
     if (lb) return exportLorebook(lb[1]!);
     const story = /^\/api\/projects\/([\w-]+)\/export\.md$/.exec(url.pathname);

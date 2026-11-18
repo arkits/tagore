@@ -64,6 +64,9 @@ function chatLines(user: string, reply: boolean): string {
   ].join("\n");
 }
 
+/** TAGORE_MOCK_DELAY_MS slows every streamed part down, e.g. to test reconnecting mid-run. */
+const pause = (ms: number) => new Promise((r) => setTimeout(r, Number(process.env.TAGORE_MOCK_DELAY_MS) || ms));
+
 export function createMockWriter() {
   return new MockLanguageModelV4({
     provider: "mock",
@@ -81,7 +84,7 @@ export function createMockWriter() {
             async start(c) {
               for (const p of parts) {
                 c.enqueue(p);
-                await new Promise((r) => setTimeout(r, 30));
+                await pause(30);
               }
               c.close();
             },
@@ -149,7 +152,7 @@ export function createMockWriter() {
           async start(c) {
             for (const p of parts) {
               c.enqueue(p);
-              await new Promise((r) => setTimeout(r, p.type === "tool-input-delta" ? 25 : 15));
+              await pause(p.type === "tool-input-delta" ? 25 : 15);
             }
             c.close();
           },
