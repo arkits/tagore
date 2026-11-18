@@ -32,11 +32,15 @@ type Form = {
 type TestState = { status: "idle" | "testing" | "ok" | "fail"; message?: string; detail?: string; ms?: number };
 
 const SECTIONS = [
-  { id: "providers", numeral: "I", title: "Providers" },
-  { id: "models", numeral: "II", title: "Models" },
-  { id: "generation", numeral: "III", title: "Generation" },
-  { id: "appearance", numeral: "IV", title: "Appearance" },
+  { id: "story", title: "Story" },
+  { id: "models", title: "Models" },
+  { id: "providers", title: "Providers" },
+  { id: "generation", title: "Generation" },
+  { id: "appearance", title: "Appearance" },
 ] as const;
+
+type SectionId = (typeof SECTIONS)[number]["id"];
+const SECTION_NUMERALS = ["I", "II", "III", "IV", "V"];
 
 const PROVIDERS: { id: ProviderId; name: string; mark: string; blurb: string; href?: string }[] = [
   { id: "openrouter", name: "OpenRouter", mark: "O", blurb: "One key, hundreds of models — the easiest start.", href: "https://openrouter.ai/keys" },
@@ -44,8 +48,6 @@ const PROVIDERS: { id: ProviderId; name: string; mark: string; blurb: string; hr
   { id: "openai", name: "OpenAI", mark: "◎", blurb: "GPT models, or any service speaking the OpenAI dialect.", href: "https://platform.openai.com/api-keys" },
   { id: "custom", name: "Local & custom", mark: "⌂", blurb: "Ollama, LM Studio, llama.cpp, vLLM — anything OpenAI-compatible." },
 ];
-
-const STORY_SECTION = { id: "story", numeral: "V", title: "Story" } as const;
 
 export function SettingsDialog({
   open,
@@ -56,12 +58,18 @@ export function SettingsDialog({
   onOpenChange: (o: boolean) => void;
   story?: { project: Project; onExport: () => Promise<void> };
 }) {
-  const sections = story ? [...SECTIONS, STORY_SECTION] : SECTIONS;
+  const sections = story ? SECTIONS : SECTIONS.slice(1);
+  const firstSection = sections[0]!.id;
+  const section = (id: SectionId) => ({
+    id,
+    title: SECTIONS.find((entry) => entry.id === id)!.title,
+    numeral: SECTION_NUMERALS[sections.findIndex((entry) => entry.id === id)]!,
+  });
   const settings = useQuery(trpc.settings.get.queryOptions());
   const [f, setF] = useState<Form | null>(null);
   const [initial, setInitial] = useState("");
   const [tests, setTests] = useState<Partial<Record<ProviderId, TestState>>>({});
-  const [active, setActive] = useState<string>("providers");
+  const [active, setActive] = useState<SectionId>(firstSection);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,16 +89,16 @@ export function SettingsDialog({
     setF(form);
     setInitial(JSON.stringify(form));
     setTests({});
-    setActive("providers");
+    setActive(firstSection);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, settings.data === undefined]);
+  }, [open, settings.data === undefined, firstSection]);
 
   // Scroll-spy for the contents rail: the last section whose heading has passed the top third.
   const onScroll = () => {
     const root = scrollRef.current;
     if (!root) return;
     const top = root.getBoundingClientRect().top + root.clientHeight * 0.33;
-    let current: string = SECTIONS[0].id;
+    let current = firstSection;
     for (const sec of sections) {
       const el = root.querySelector(`#${sec.id}`);
       if (el && el.getBoundingClientRect().top <= top) current = sec.id;
@@ -131,7 +139,7 @@ export function SettingsDialog({
     }
   };
 
-  const jump = (id: string) => {
+  const jump = (id: SectionId) => {
     setActive(id);
     scrollRef.current?.querySelector(`#${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -150,13 +158,14 @@ export function SettingsDialog({
           <div className="px-4 pt-4 pb-2 md:px-7 md:pt-8 md:pb-6">
             <p className="small-caps text-[11px] text-muted-foreground">Tagore</p>
             <DialogTitle className="font-display text-[34px] leading-[1.05] font-light italic tracking-tight mt-1">Settings</DialogTitle>
-            <DialogDescription className="sr-only">Providers, models, generation, appearance{story ? ", and story settings." : "."}</DialogDescription>
+            <DialogDescription className="sr-only">{story ? "Story, models, providers, generation, and appearance." : "Models, providers, generation, and appearance."}</DialogDescription>
           </div>
           <nav className="flex overflow-x-auto px-2 pb-2 md:block md:overflow-visible md:px-4 md:pb-0 md:space-y-0.5">
-            {sections.map((s) => (
+            {sections.map((s, index) => (
               <button
                 key={s.id}
                 onClick={() => jump(s.id)}
+                aria-current={active === s.id ? "location" : undefined}
                 className={cn(
                   "group relative shrink-0 flex items-baseline gap-3 rounded-sm px-3 py-2 text-left transition-colors md:w-full md:pl-4",
                   active === s.id ? "text-ink" : "text-muted-foreground hover:text-ink",
@@ -168,7 +177,7 @@ export function SettingsDialog({
                     active === s.id ? "opacity-100" : "opacity-0 scale-y-50",
                   )}
                 />
-                <span className={cn("hidden md:inline font-display text-[13px] w-6 tabular-nums transition-colors", active === s.id && "text-oxblood")}>{s.numeral}.</span>
+                <span className={cn("hidden md:inline font-display text-[13px] w-6 tabular-nums transition-colors", active === s.id && "text-oxblood")}>{SECTION_NUMERALS[index]}.</span>
                 <span className="text-[15px]">{s.title}</span>
               </button>
             ))}
@@ -185,7 +194,49 @@ export function SettingsDialog({
         {/* ------------------------------------------------------------- content */}
         <div className="flex flex-col min-h-0">
           <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto thin-scroll px-4 pt-6 pb-10 space-y-14 md:pt-9 md:px-[max(2.5rem,calc((100%_-_58rem)/2))]">
-            <Section id="providers" numeral="I" title="Providers" lede="Connect at least one. Test before you save — nothing is spent, we only ask who you are.">
+            {story && (
+              <Section {...section("story")} lede={story.project.title}>
+                <div className="divide-y divide-rule border-y border-rule">
+                  <div className="space-y-3 py-5">
+                    <div>
+                      <h3 className="font-display text-[17px] leading-tight">Story theme</h3>
+                      <p className="text-[13px] text-muted-foreground mt-1">Applies immediately to this story.</p>
+                    </div>
+                    <ThemeSwitcher project={story.project} />
+                  </div>
+                  <LedgerRow title="Export manuscript" note="Download all chapters in order as a Markdown file.">
+                    <Button variant="outline" onClick={story.onExport}>
+                      <Download className="size-4" /> Export story as Markdown
+                    </Button>
+                  </LedgerRow>
+                </div>
+              </Section>
+            )}
+
+            <Section {...section("models")} lede="Choose the models for writing and chapter summaries.">
+              <div className="divide-y divide-rule border-y border-rule">
+                <LedgerRow title="Writing model" note="Drafts, continues and revises. The stronger, the better the prose.">
+                  <ModelPicker value={f.model} onChange={(r) => setF({ ...f, model: r })} className="w-full max-w-none justify-between h-10" />
+                </LedgerRow>
+                <LedgerRow title="Summary model" note="Keeps chapter summaries — the agent’s long memory — current. A small, fast model is plenty.">
+                  <div className="flex gap-2">
+                    <ModelPicker
+                      value={f.summaryModel || f.model}
+                      onChange={(r) => setF({ ...f, summaryModel: r })}
+                      className="flex-1 max-w-none justify-between h-10"
+                    />
+                    {f.summaryModel && (
+                      <Button variant="ghost" size="sm" className="h-10" onClick={() => setF({ ...f, summaryModel: "" })}>
+                        Use writing model
+                      </Button>
+                    )}
+                  </div>
+                  {!f.summaryModel && <p className="text-xs italic text-muted-foreground mt-1.5">Currently the writing model.</p>}
+                </LedgerRow>
+              </div>
+            </Section>
+
+            <Section {...section("providers")} lede="Connect at least one. Test before you save — nothing is spent, we only ask who you are.">
               <div className="space-y-4">
                 {PROVIDERS.map((p, i) => (
                   <ProviderCard
@@ -231,30 +282,7 @@ export function SettingsDialog({
               </div>
             </Section>
 
-            <Section id="models" numeral="II" title="Models" lede="Choose the models for writing and chapter summaries.">
-              <div className="divide-y divide-rule border-y border-rule">
-                <LedgerRow title="Writing model" note="Drafts, continues and revises. The stronger, the better the prose.">
-                  <ModelPicker value={f.model} onChange={(r) => setF({ ...f, model: r })} className="w-full max-w-none justify-between h-10" />
-                </LedgerRow>
-                <LedgerRow title="Summary model" note="Keeps chapter summaries — the agent’s long memory — current. A small, fast model is plenty.">
-                  <div className="flex gap-2">
-                    <ModelPicker
-                      value={f.summaryModel || f.model}
-                      onChange={(r) => setF({ ...f, summaryModel: r })}
-                      className="flex-1 max-w-none justify-between h-10"
-                    />
-                    {f.summaryModel && (
-                      <Button variant="ghost" size="sm" className="h-10" onClick={() => setF({ ...f, summaryModel: "" })}>
-                        Use writing model
-                      </Button>
-                    )}
-                  </div>
-                  {!f.summaryModel && <p className="text-xs italic text-muted-foreground mt-1.5">Currently the writing model.</p>}
-                </LedgerRow>
-              </div>
-            </Section>
-
-            <Section id="generation" numeral="III" title="Generation" lede="How much the agent reads before it writes, and how freely it writes.">
+            <Section {...section("generation")} lede="How much the agent reads before it writes, and how freely it writes.">
               <div className="divide-y divide-rule border-y border-rule">
                 <LedgerRow title="OpenRouter thinking" note="Applies to writing and summaries when the model supports optional thinking.">
                   <div role="group" aria-label="OpenRouter thinking" className="flex flex-wrap gap-1.5">
@@ -288,28 +316,9 @@ export function SettingsDialog({
               </div>
             </Section>
 
-            <Section id="appearance" numeral="IV" title="Appearance" lede="Saved instantly, on this device.">
+            <Section {...section("appearance")} lede="Saved instantly, on this device.">
               <ThemeTiles />
             </Section>
-
-            {story && (
-              <Section {...STORY_SECTION} lede={story.project.title}>
-                <div className="divide-y divide-rule border-y border-rule">
-                  <div className="space-y-3 py-5">
-                    <div>
-                      <h3 className="font-display text-[17px] leading-tight">Story theme</h3>
-                      <p className="text-[13px] text-muted-foreground mt-1">Applies immediately to this story.</p>
-                    </div>
-                    <ThemeSwitcher project={story.project} />
-                  </div>
-                  <LedgerRow title="Export manuscript" note="Download all chapters in order as a Markdown file.">
-                    <Button variant="outline" onClick={story.onExport}>
-                      <Download className="size-4" /> Export story as Markdown
-                    </Button>
-                  </LedgerRow>
-                </div>
-              </Section>
-            )}
           </div>
 
           <footer className="shrink-0 flex items-center gap-3 border-t bg-sidebar/60 px-4 py-3.5 md:px-[max(2.5rem,calc((100%_-_58rem)/2))]">
