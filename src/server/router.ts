@@ -75,6 +75,7 @@ const projectsRouter = t.router({
         premise: z.string().optional(),
         styleGuide: z.string().optional(),
         authorsNote: z.string().optional(),
+        intimacySounds: z.boolean().optional(),
       }),
     )
     .mutation(({ input: { id, ...patch } }) => {

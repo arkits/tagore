@@ -30,6 +30,7 @@ import {
   type StoryFormat,
 } from "../../shared/doc";
 import { expandMacros, type CardData } from "../../shared/character";
+import { intimacyNoteFor } from "./intimacy";
 
 export type AgentMode = "draft" | "continue" | "reply" | "revise" | "polish" | "custom";
 
@@ -312,11 +313,16 @@ export function buildContext(req: ContextRequest): BuiltContext {
     ? `<recent_session>\n${log.map((m) => `${m.role === "user" ? "Author" : "You"}: ${m.content.slice(0, 600)}`).join("\n")}\n</recent_session>`
     : "";
 
+  const intimacyNote =
+    project.format === "chat" && project.intimacySounds && ["draft", "continue", "reply"].includes(req.mode)
+      ? intimacyNoteFor(blocks.findLast((block) => block.type === "paragraph" && block.speaker)?.text ?? "")
+      : "";
+
   /* ---- 8. author's note + instruction ---- */
   const tail = buildInstruction(req, project.format, blocks, project.authorsNote, pov, replySpeakers);
 
   /* ---- 6. current chapter ---- */
-  const usedSoFar = sections.reduce((n, s) => n + s.tokens, 0) + estimateTokens(logText) + estimateTokens(tail) + 1800;
+  const usedSoFar = sections.reduce((n, s) => n + s.tokens, 0) + estimateTokens(logText) + estimateTokens(intimacyNote) + estimateTokens(tail) + 1800;
   const docBudget = Math.max(2000, B - usedSoFar);
   const visibleIds = new Set<string>();
   let chapterBody: string;
@@ -351,6 +357,7 @@ export function buildContext(req: ContextRequest): BuiltContext {
   add("Current chapter", docSection, visibleIds.size < blocks.length ? `${visibleIds.size}/${blocks.length} blocks (windowed)` : `${blocks.length} blocks`);
 
   if (logText) add("Session log", logText, `${log.length} messages`);
+  add("Intimacy sound effects", intimacyNote);
   add("Instruction", tail);
 
   const system = systemPrompt(project.format);

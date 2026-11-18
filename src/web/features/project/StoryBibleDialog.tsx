@@ -6,6 +6,7 @@ import { queryClient, trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Field } from "../settings/SettingsDialog";
 import { ThemePicker } from "./ThemePicker";
@@ -44,7 +45,7 @@ export function FormatToggle({ value, onChange }: { value: StoryFormat; onChange
 export function StoryBibleDialog({ projectId, open, onOpenChange }: { projectId: string; open: boolean; onOpenChange: (o: boolean) => void }) {
   const project = useQuery(trpc.projects.get.queryOptions(projectId));
   const cast = useQuery(trpc.characters.forProject.queryOptions(projectId));
-  const [f, setF] = useState({ title: "", format: "prose" as StoryFormat, theme: "folio", pov: "", premise: "", styleGuide: "", authorsNote: "" });
+  const [f, setF] = useState({ title: "", format: "prose" as StoryFormat, theme: "folio", pov: "", premise: "", styleGuide: "", authorsNote: "", intimacySounds: false });
   useEffect(() => {
     if (project.data && open) {
       const format: StoryFormat = project.data.format === "chat" ? "chat" : "prose";
@@ -56,6 +57,7 @@ export function StoryBibleDialog({ projectId, open, onOpenChange }: { projectId:
         premise: project.data.premise,
         styleGuide: project.data.styleGuide,
         authorsNote: project.data.authorsNote,
+        intimacySounds: project.data.intimacySounds,
       });
     }
   }, [project.data, open]);
@@ -120,6 +122,17 @@ export function StoryBibleDialog({ projectId, open, onOpenChange }: { projectId:
         <Field label="Author’s note" hint="Short, high-priority steering placed right before every instruction — e.g. the current mood or what to emphasise.">
           <Textarea rows={2} value={f.authorsNote} onChange={(e) => setF({ ...f, authorsNote: e.target.value })} className="font-book text-base" />
         </Field>
+        {f.format === "chat" && (
+          <label className="flex items-center justify-between gap-4">
+            <span>
+              <span className="block text-sm font-medium">Intimacy sound effects</span>
+              <span className="block text-xs text-muted-foreground">
+                Add sound and symbol guidance when the latest message matches an intimacy keyword.
+              </span>
+            </span>
+            <Switch checked={f.intimacySounds} onCheckedChange={(intimacySounds) => setF({ ...f, intimacySounds })} />
+          </label>
+        )}
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel

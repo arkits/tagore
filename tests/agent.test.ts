@@ -52,6 +52,41 @@ test("chat persona: project edits reach the co-author context", async () => {
   expect(prompt).toContain(personaDescription);
 });
 
+test("chat intimacy sounds: opt-in guidance follows the latest message", async () => {
+  const { appRouter } = await import("../src/server/router");
+  const caller = appRouter.createCaller({});
+  const { id, chapterId } = await caller.projects.create({ title: "Night Train", format: "chat" });
+  const readContext = (mode: "reply" | "draft" | "continue" | "polish" = "reply") =>
+    buildContext({ chapterId, instruction: "", mode, budget: 20000 });
+  const setContent = (text: string) =>
+    db.update(schema.chapters).set({ content: doc(text) }).where(eq(schema.chapters.id, chapterId)).run();
+
+  setContent("{Ada} Can I KISS you?\n## 11:42 PM");
+  expect((await caller.projects.get(id)).intimacySounds).toBe(false);
+  expect(readContext().prompt).not.toContain("<intimacy_sound_guidance>");
+
+  await caller.projects.update({ id, intimacySounds: true });
+  for (const mode of ["reply", "draft", "continue"] as const) {
+    const { prompt, sections } = readContext(mode);
+    expect(prompt.match(/<intimacy_sound_guidance>/g)).toHaveLength(1);
+    expect(prompt).toContain("slurp");
+    expect(prompt).toContain("♪");
+    expect(sections.find((section) => section.name === "Intimacy sound effects")?.tokens).toBeGreaterThan(0);
+  }
+  expect(readContext("polish").prompt).not.toContain("<intimacy_sound_guidance>");
+
+  setContent("{Ada} Can I kiss you?\n{Mara} See you tomorrow.\nKiss was deleted.");
+  expect(readContext().prompt).not.toContain("<intimacy_sound_guidance>");
+  setContent("{Ada} That was a kissogram.");
+  expect(readContext().prompt).not.toContain("<intimacy_sound_guidance>");
+
+  setContent("{Ada} Can I kiss you?");
+  await caller.projects.update({ id, format: "prose" });
+  expect(readContext("continue").prompt).not.toContain("<intimacy_sound_guidance>");
+  await caller.projects.update({ id, format: "chat", intimacySounds: false });
+  expect(readContext().prompt).not.toContain("<intimacy_sound_guidance>");
+});
+
 test("context: windows large chapters around the focus", () => {
   const big = Array.from({ length: 400 }, (_, i) => `Paragraph ${i} ` + "lorem ipsum dolor sit amet ".repeat(12)).join("\n");
   db.insert(schema.chapters).values({ id: "big", projectId: "p1", title: "Big", position: 2, content: doc(big) }).run();

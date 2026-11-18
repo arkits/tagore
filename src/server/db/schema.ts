@@ -23,6 +23,7 @@ export const projects = sqliteTable("projects", {
   theme: text("theme").notNull().default("folio"),
   /** Chat stories: whose phone/screen this is — their messages appear on the "me" side. */
   pov: text("pov").notNull().default(""),
+  intimacySounds: integer("intimacy_sounds", { mode: "boolean" }).notNull().default(false),
   personaDescription: text("persona_description").notNull().default(""),
   createdAt: integer("created_at").notNull().$defaultFn(now),
   updatedAt: integer("updated_at").notNull().$defaultFn(now),
