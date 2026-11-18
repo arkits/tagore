@@ -9,11 +9,35 @@
 @import "@fontsource/courier-prime/400.css";
 @import "@fontsource/courier-prime/700.css";
 @import "@fontsource/courier-prime/400-italic.css";
+/* story theme fonts (only downloaded when a theme uses them) */
+@import "@fontsource/bangers/400.css";
+@import "@fontsource/comic-neue/400.css";
+@import "@fontsource/comic-neue/700.css";
+@import "@fontsource/dela-gothic-one/400.css";
+@import "@fontsource/unifrakturmaguntia/400.css";
+@import "@fontsource/im-fell-english/400.css";
+@import "@fontsource/im-fell-english/400-italic.css";
+@import "@fontsource-variable/caveat";
+@import "@fontsource/kalam/400.css";
+@import "@fontsource/kalam/700.css";
+@import "@fontsource-variable/orbitron";
+@import "@fontsource-variable/exo-2";
+@import "@fontsource/chakra-petch/400.css";
+@import "@fontsource/chakra-petch/600.css";
 
 @custom-variant dark (&:is(.dark *));
 
 /* ------------------------------------------------------------------ sepia */
 :root {
+  /* Fonts are tokens too, so story themes can swap them. */
+  --ui-font: "Newsreader Variable", Georgia, serif;
+  --display-font: "Fraunces Variable", Georgia, serif;
+  --book-font: "EB Garamond", Garamond, Georgia, serif;
+  --mono-font: "Courier Prime", "Courier New", monospace;
+  /* Manuscript text colour; differs from chrome ink when a theme puts a light page on a dark desk. */
+  --page-ink: var(--ink);
+  --page-w: 100%;
+
   --desk: #e9dfcb;
   --paper: #fbf5e8;
   --ink: #2a2017;
@@ -107,11 +131,11 @@
 }
 
 @theme inline {
-  --font-sans: "Newsreader Variable", Georgia, serif;
-  --font-serif: "Newsreader Variable", Georgia, serif;
-  --font-display: "Fraunces Variable", Georgia, serif;
-  --font-book: "EB Garamond", Garamond, Georgia, serif;
-  --font-script: "Courier Prime", "Courier New", monospace;
+  --font-sans: var(--ui-font);
+  --font-serif: var(--ui-font);
+  --font-display: var(--display-font);
+  --font-book: var(--book-font);
+  --font-script: var(--mono-font);
 
   --color-desk: var(--desk);
   --color-paper: var(--paper);
@@ -183,10 +207,13 @@
 }
 
 /* ------------------------------------------------------------ manuscript */
+.manuscript {
+  position: relative;
+}
 .manuscript .ProseMirror {
   outline: none;
   min-height: 60vh;
-  color: var(--ink);
+  color: var(--page-ink);
   caret-color: var(--oxblood);
 }
 
@@ -255,22 +282,6 @@
   font-style: italic;
   text-indent: 0;
 }
-
-/* script: screenplay layout */
-.manuscript.script-format .ProseMirror {
-  font-family: var(--font-script);
-  font-size: 1.02rem;
-  line-height: 1.45;
-}
-.manuscript.script-format .ProseMirror p { margin: 0 0 1em; }
-.manuscript.script-format .ProseMirror p[data-kind="scene"] { text-transform: uppercase; font-weight: 700; margin-top: 1.6em; }
-.manuscript.script-format .ProseMirror p[data-kind="action"] { }
-.manuscript.script-format .ProseMirror p[data-kind="character"] { text-transform: uppercase; margin: 1em 0 0 37%; }
-.manuscript.script-format .ProseMirror p[data-kind="parenthetical"] { margin: 0 25% 0 28%; }
-.manuscript.script-format .ProseMirror p[data-kind="dialogue"] { margin: 0 18% 1em 17%; }
-.manuscript.script-format .ProseMirror p[data-kind="character"] + p[data-kind="dialogue"],
-.manuscript.script-format .ProseMirror p[data-kind="parenthetical"] + p[data-kind="dialogue"] { margin-top: 0; }
-.manuscript.script-format .ProseMirror p[data-kind="transition"] { text-transform: uppercase; text-align: right; }
 
 /* ----------------------------------------------------- tracked suggestions */
 .sg-del {
@@ -446,7 +457,7 @@ html.theme-transition, html.theme-transition * {
   position: absolute;
   inset: 0;
   transform: rotateY(180deg);
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 /* The sheet lifts off the desk mid-turn… */

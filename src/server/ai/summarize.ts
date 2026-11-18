@@ -1,19 +1,18 @@
-import { generateText } from "ai";
+import { streamText } from "ai";
 import { eq } from "drizzle-orm";
 import { db, schema } from "../db";
-import { docToBlocks, plainText } from "../../shared/doc";
+import { blockPlain, docToBlocks } from "../../shared/doc";
 import { getModel } from "./providers";
 import { getSettings } from "../settings";
 
 const MAX_CHARS = 120_000; // ~30k tokens of chapter text per summary call
 
-export async function summarizeChapter(chapterId: string, signal?: AbortSignal): Promise<string> {
+/** Summarize a chapter, streaming the text through `onDelta` as it's written. Saves when done. */
+export async function summarizeChapter(chapterId: string, signal?: AbortSignal, onDelta?: (d: string) => void): Promise<string> {
   const ch = db.select().from(schema.chapters).where(eq(schema.chapters.id, chapterId)).get();
   if (!ch) throw new Error("Chapter not found");
   const s = getSettings();
-  let text = docToBlocks(ch.content)
-    .map((b) => (b.type === "scene_break" ? "* * *" : plainText(b.text)))
-    .join("\n");
+  let text = docToBlocks(ch.content).map(blockPlain).join("\n");
   if (!text.trim()) {
     db.update(schema.chapters).set({ summary: "", summaryHash: ch.contentHash }).where(eq(schema.chapters.id, chapterId)).run();
     return "";
@@ -22,7 +21,7 @@ export async function summarizeChapter(chapterId: string, signal?: AbortSignal):
     // Keep beginning and end; the middle is where detail is least load-bearing for continuity.
     text = text.slice(0, MAX_CHARS * 0.4) + "\n[…]\n" + text.slice(-MAX_CHARS * 0.6);
   }
-  const { text: summary } = await generateText({
+  const result = streamText({
     model: getModel(s.summaryModel || s.model, s),
     temperature: 0.2,
     abortSignal: signal,
@@ -39,6 +38,14 @@ Write 120–250 words of dense continuity notes:
 - Open threads, promises, foreshadowing.
 No preamble.`,
   });
+  let summary = "";
+  for await (const part of result.stream) {
+    if (part.type === "text-delta") {
+      summary += part.text;
+      onDelta?.(part.text);
+    } else if (part.type === "error") throw part.error instanceof Error ? part.error : new Error(String(part.error));
+  }
+  if (signal?.aborted) return summary.trim();
   db.update(schema.chapters)
     .set({ summary: summary.trim(), summaryHash: ch.contentHash })
     .where(eq(schema.chapters.id, chapterId))

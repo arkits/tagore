@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import path from "node:path";
 import { appRouter } from "./router";
 import { runAgent, type AgentEvent, type RunRequest } from "./ai/agent";
+import { summarizeChapter } from "./ai/summarize";
 import { db, schema } from "./db";
 import { embedCardInPng } from "./cards/png";
 import { toCardV2 } from "../shared/character";
@@ -52,6 +53,32 @@ function agentStream(req: Request): Response {
   });
 }
 
+/** Stream a chapter summary as plain text chunks; a final "\u0000ERR:" line signals failure. */
+function summaryStream(req: Request, chapterId: string): Response {
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        await summarizeChapter(chapterId, req.signal, (d) => {
+          try {
+            controller.enqueue(enc.encode(d));
+          } catch {}
+        });
+      } catch (err: any) {
+        if (!req.signal.aborted)
+          try {
+            controller.enqueue(enc.encode(`\u0000ERR:${err?.message ?? err}`));
+          } catch {}
+      } finally {
+        try {
+          controller.close();
+        } catch {}
+      }
+    },
+  });
+  return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache", "X-Accel-Buffering": "no" } });
+}
+
 function exportCharacter(id: string, format: string): Response {
   const row = db.select().from(schema.characters).where(eq(schema.characters.id, id)).get();
   if (!row) return new Response("Not found", { status: 404 });
@@ -79,6 +106,8 @@ const server = Bun.serve({
     if (url.pathname === "/api/agent/run" && req.method === "POST") return agentStream(req);
     const exp = /^\/api\/characters\/([\w-]+)\/export\.(png|json)$/.exec(url.pathname);
     if (exp) return exportCharacter(exp[1]!, exp[2]!);
+    const sm = /^\/api\/chapters\/([\w-]+)\/summarize$/.exec(url.pathname);
+    if (sm && req.method === "POST") return summaryStream(req, sm[1]!);
     const lb = /^\/api\/projects\/([\w-]+)\/lorebook\.json$/.exec(url.pathname);
     if (lb) return exportLorebook(lb[1]!);
 

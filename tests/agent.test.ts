@@ -82,6 +82,28 @@ test("agent: draft beats are saved as chapter notes and reach the context", asyn
   expect(buildContext({ chapterId: "c2", instruction: "", mode: "draft", budget: 20000 }).prompt).toContain("<chapter_notes>\n— the logbook's last page is missing");
 });
 
+test("agent: edits stream as live drafts before becoming suggestions", async () => {
+  const events: any[] = [];
+  await runAgent({ chapterId: "c1", instruction: "", mode: "continue" }, (e) => events.push(e), new AbortController().signal);
+  const drafts = events.filter((e) => e.t === "draft");
+  expect(drafts.length).toBeGreaterThan(2);
+  // the inserted passage grows as tokens arrive
+  const lens = drafts.filter((d) => d.op.op === "insert_after").map((d) => JSON.stringify(d.op.blocks).length);
+  expect(lens.at(-1)).toBeGreaterThan(lens[0]);
+  // every draft is closed before its suggestion lands
+  const firstSugg = events.findIndex((e) => e.t === "suggestion");
+  expect(events.slice(0, firstSugg).some((e) => e.t === "draft-end")).toBe(true);
+  expect(events.filter((e) => e.t === "draft-end").length).toBe(new Set(drafts.map((d) => d.id)).size);
+});
+
+test("chat format: {Speaker} lines round-trip through the block model", async () => {
+  const { textToBlocks, blockToLine, newBlockToNode, nodeToBlock } = await import("../src/shared/doc");
+  const [b] = textToBlocks("{Mara Quell} you up?");
+  expect(b).toEqual({ type: "paragraph", speaker: "Mara Quell", text: "you up?" });
+  const block = nodeToBlock(newBlockToNode(b!, "abc"))!;
+  expect(blockToLine(block)).toBe("[p:abc] {Mara Quell} you up?");
+});
+
 test("png cards round-trip", () => {
   // 1x1 transparent PNG
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");

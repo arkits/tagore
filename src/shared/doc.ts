@@ -8,24 +8,7 @@
  * editable by diff instead of by rewrite.
  */
 
-export type ScriptKind =
-  | "scene"
-  | "action"
-  | "character"
-  | "parenthetical"
-  | "dialogue"
-  | "transition";
-
-export const SCRIPT_KINDS: ScriptKind[] = [
-  "scene",
-  "action",
-  "character",
-  "parenthetical",
-  "dialogue",
-  "transition",
-];
-
-export type StoryFormat = "prose" | "script";
+export type StoryFormat = "prose" | "chat";
 
 export type PMMark = { type: string; attrs?: Record<string, unknown> };
 export type PMNode = {
@@ -37,12 +20,16 @@ export type PMNode = {
 };
 export type PMDoc = { type: "doc"; content: PMNode[] };
 
-/** A block as the agent sees it. `text` uses a markdown-lite inline syntax (*em*, **strong**). */
+/**
+ * A block as the agent sees it. `text` uses a markdown-lite inline syntax (*em*, **strong**).
+ * In chat stories each paragraph is one message and `speaker` names who sent it
+ * (null = narration / system line such as "Mara left the chat").
+ */
 export type Block = {
   id: string;
   type: "paragraph" | "heading" | "scene_break";
   level?: number;
-  kind?: ScriptKind | null;
+  speaker?: string | null;
   text: string;
 };
 
@@ -56,6 +43,13 @@ export type SuggestionOp =
   | { op: "delete_blocks"; blockIds: string[] };
 
 export const EMPTY_DOC: PMDoc = { type: "doc", content: [{ type: "paragraph", attrs: { id: null } }] };
+
+/** A message/paragraph as plain text, with its speaker for chat ("Mara: hi"). */
+export function blockPlain(b: Block): string {
+  if (b.type === "scene_break") return "* * *";
+  const t = plainText(b.text);
+  return b.speaker ? `${b.speaker}: ${t}` : t;
+}
 
 const ID_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
 export function blockId(len = 8): string {
@@ -118,7 +112,7 @@ export function nodeToBlock(n: PMNode): Block | null {
   if (n.type === "heading") return { id, type: "heading", level: n.attrs?.level ?? 2, text: inlineToMd(n.content) };
   if (n.type === "horizontalRule") return { id, type: "scene_break", text: "" };
   if (n.type === "paragraph")
-    return { id, type: "paragraph", kind: (n.attrs?.kind as ScriptKind) ?? null, text: inlineToMd(n.content) };
+    return { id, type: "paragraph", speaker: (n.attrs?.speaker as string) || null, text: inlineToMd(n.content) };
   return null;
 }
 
@@ -132,20 +126,20 @@ export function newBlockToNode(b: NewBlock, id = blockId()): PMNode {
   const content = mdToInline(b.text);
   if (b.type === "heading")
     return { type: "heading", attrs: { id, level: b.level ?? 2 }, ...(content.length ? { content } : {}) };
-  return { type: "paragraph", attrs: { id, kind: b.kind ?? null }, ...(content.length ? { content } : {}) };
+  return { type: "paragraph", attrs: { id, speaker: b.speaker ?? null }, ...(content.length ? { content } : {}) };
 }
 
 /** Render one block as a single prompt line: `[p:id] text`. */
 export function blockToLine(b: Block): string {
   if (b.type === "scene_break") return `[p:${b.id}] ***`;
   if (b.type === "heading") return `[p:${b.id}] ${"#".repeat(b.level ?? 2)} ${b.text}`;
-  const kind = b.kind ? `{${b.kind}} ` : "";
-  return `[p:${b.id}] ${kind}${b.text.replace(/\n/g, " ")}`;
+  const who = b.speaker ? `{${b.speaker}} ` : "";
+  return `[p:${b.id}] ${who}${b.text.replace(/\n/g, " ")}`;
 }
 
 /**
  * Parse agent-authored text into new blocks.
- * One paragraph per line; `#`/`##` headings; `***` scene breaks; `{dialogue}`-style kind prefixes for scripts.
+ * One paragraph per line; `#`/`##` headings; `***` scene breaks; `{Name} text` = a chat message from Name.
  */
 export function textToBlocks(text: string): NewBlock[] {
   const out: NewBlock[] = [];
@@ -163,12 +157,12 @@ export function textToBlocks(text: string): NewBlock[] {
       out.push({ type: "heading", level: h[1]!.length, text: h[2]! });
       continue;
     }
-    const k = /^\{(scene|action|character|parenthetical|dialogue|transition)\}\s*(.*)$/i.exec(line);
+    const k = /^\{([^{}]{1,60})\}\s*(.*)$/.exec(line);
     if (k) {
-      out.push({ type: "paragraph", kind: k[1]!.toLowerCase() as ScriptKind, text: k[2]! });
+      out.push({ type: "paragraph", speaker: k[1]!.trim(), text: k[2]! });
       continue;
     }
-    out.push({ type: "paragraph", kind: null, text: line });
+    out.push({ type: "paragraph", speaker: null, text: line });
   }
   return out;
 }

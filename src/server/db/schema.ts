@@ -19,6 +19,10 @@ export const projects = sqliteTable("projects", {
   styleGuide: text("style_guide").notNull().default(""),
   /** Short, high-priority steering placed right before the instruction (SillyTavern's "Author's Note"). */
   authorsNote: text("authors_note").notNull().default(""),
+  /** Visual theme id (see src/web/lib/themes.ts). */
+  theme: text("theme").notNull().default("folio"),
+  /** Chat stories: whose phone/screen this is — their messages appear on the "me" side. */
+  pov: text("pov").notNull().default(""),
   createdAt: integer("created_at").notNull().$defaultFn(now),
   updatedAt: integer("updated_at").notNull().$defaultFn(now),
 });

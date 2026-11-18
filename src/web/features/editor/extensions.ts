@@ -56,15 +56,15 @@ export const BlockIds = Extension.create({
   },
 });
 
-/** Paragraph with a screenplay `kind` (scene, action, character, …). */
-export const KindParagraph = Paragraph.extend({
+/** Paragraph with an optional chat `speaker` (who sent this message). */
+export const SpeakerParagraph = Paragraph.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
-      kind: {
+      speaker: {
         default: null,
-        parseHTML: (el) => el.getAttribute("data-kind"),
-        renderHTML: (attrs) => (attrs.kind ? { "data-kind": attrs.kind } : {}),
+        parseHTML: (el) => el.getAttribute("data-speaker"),
+        renderHTML: (attrs) => (attrs.speaker ? { "data-speaker": attrs.speaker } : {}),
       },
     };
   },

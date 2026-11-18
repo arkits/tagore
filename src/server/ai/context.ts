@@ -20,6 +20,7 @@
 import { and, asc, eq, ne } from "drizzle-orm";
 import { db, schema } from "../db";
 import {
+  blockPlain,
   blockToLine,
   docToBlocks,
   estimateTokens,
@@ -164,20 +165,21 @@ export function buildContext(req: ContextRequest): BuiltContext {
   const prevBlocks = prev ? docToBlocks(prev.content) : [];
   const prevTail = (() => {
     let s = "";
-    for (let i = prevBlocks.length - 1; i >= 0 && s.length < 6000; i--) s = plainText(prevBlocks[i]!.text) + "\n" + s;
+    for (let i = prevBlocks.length - 1; i >= 0 && s.length < 6000; i--) s = blockPlain(prevBlocks[i]!) + "\n" + s;
     return s.trim();
   })();
 
   const nearFocus = blocks
     .slice(Math.max(0, focusIdx - 25), focusIdx + 10)
-    .map((b) => plainText(b.text))
+    .map(blockPlain)
     .join("\n");
   const scan = [req.instruction, chapter.notes, chapter.title, nearFocus, prevTail.slice(-2000), project.authorsNote].join("\n");
 
   /* ---- 1. story bible ---- */
   const bible = [
     `# ${project.title}`,
-    `Format: ${project.format === "script" ? "screenplay / script" : "prose fiction"}`,
+    `Format: ${project.format === "chat" ? "chat story: told entirely as a message thread" : "prose fiction"}`,
+    project.format === "chat" && `Whose screen this is (their messages are "me"): ${project.pov || "unspecified — pick the protagonist"}`,
     project.premise && `## Premise\n${project.premise}`,
     project.styleGuide && `## Style guide\n${project.styleGuide}`,
   ]
@@ -364,8 +366,14 @@ function buildInstruction(req: ContextRequest, format: StoryFormat, blocks: Bloc
     : "";
   const last = blocks.at(-1);
   const modeText: Record<AgentMode, string> = {
-    draft: `Draft this chapter from the chapter notes (the author's ideas & beats) and any direction. Write complete, polished ${format === "script" ? "script pages" : "prose"}. If the chapter already has text, build on it rather than replacing it. Insert with insert_after (after_id "START" or the last block id${last ? ` — currently ${last.id}` : ""}). Split long drafts into several insert_after calls of roughly 400–900 words each, each continuing after the previous one (use "LAST" as after_id to append after your previous insert).`,
-    continue: `Continue the chapter from where it ends${last ? ` (after [p:${last.id}])` : ""}. Match voice and tense exactly. Use insert_after.`,
+    draft:
+      format === "chat"
+        ? `Write this part of the story as a message thread, from the chapter notes (the author's ideas & beats) and any direction. Build on any existing messages. Insert with insert_after (after_id "START" or the last block id${last ? ` — currently ${last.id}` : ""}). Write in batches of roughly 15–40 messages per insert_after call, continuing with after_id "LAST".`
+        : `Draft this chapter from the chapter notes (the author's ideas & beats) and any direction. Write complete, polished prose. If the chapter already has text, build on it rather than replacing it. Insert with insert_after (after_id "START" or the last block id${last ? ` — currently ${last.id}` : ""}). Split long drafts into several insert_after calls of roughly 400–900 words each, each continuing after the previous one (use "LAST" as after_id to append after your previous insert).`,
+    continue:
+      format === "chat"
+        ? `Continue the conversation from where it ends${last ? ` (after [p:${last.id}])` : ""}. Reply in character as the other participants — and as the screen's owner too if the scene calls for it — keeping each person's texting voice. Usually 3–15 messages. Use insert_after.`
+        : `Continue the chapter from where it ends${last ? ` (after [p:${last.id}])` : ""}. Match voice and tense exactly. Use insert_after.`,
     revise: `Revise according to the author's direction.${sel} Prefer the smallest edit that achieves the goal: replace_text for phrase-level changes, rewrite_block only when most of a paragraph changes.`,
     polish: `Line-edit for prose quality: rhythm, clarity, word choice, redundancy, clichés, continuity errors. Do NOT change plot or meaning. Use replace_text for each fix, with a short reason.${sel}`,
     custom: `Carry out the author's request.${sel} Use the edit tools for any change to the manuscript; answer in plain text if they only asked a question.`,
@@ -376,13 +384,18 @@ function buildInstruction(req: ContextRequest, format: StoryFormat, blocks: Bloc
 }
 
 function systemPrompt(format: StoryFormat): string {
-  return `You are Tagore, a skilled co-author working inside a manuscript editor. You collaborate with the author on a long-form ${format === "script" ? "screenplay" : "work of fiction"}.
+  const chat = format === "chat";
+  return `You are Tagore, a skilled co-author working inside a manuscript editor. You collaborate with the author on a long-form ${chat ? "chat story — fiction told entirely through a message thread between characters" : "work of fiction"}.
 
 HOW THE MANUSCRIPT WORKS
 - The current chapter is shown as blocks, one per line: "[p:<id>] text". Ids are stable; never invent ids.
 - Inline formatting uses *italic* and **bold**. Headings start with "#", "##". A line "***" is a scene break.${
-    format === "script"
-      ? `\n- Script blocks carry a kind prefix: {scene} INT. HOUSE – NIGHT, {action}, {character} NAME, {parenthetical} (quietly), {dialogue}, {transition} CUT TO:. Always include the kind prefix when writing script blocks.`
+    chat
+      ? `
+- This is a CHAT story. Every message is one block written as "{Sender Name} message text", e.g. "{Mara} you up?". Always include the {Sender} prefix, spelled exactly as the cast names appear.
+- A block without a {Sender} prefix is a system line shown centred in the thread (e.g. "Mara changed the group name to 'lighthouse'", "Missed voice call", "Read 2:14 AM"). Use them sparingly.
+- A "## heading" is a timestamp divider in the thread (e.g. "## Tuesday 11:42 PM"). Use one when time passes.
+- Write like people really text: short messages, several in a row, fragments, typos only where in character, emoji and punctuation as each person would use them. Story is carried by what they say, what they avoid saying, and timing — no prose narration.`
       : ""
   }
 - You NEVER rewrite the whole document. You propose targeted edits with tools. Each edit becomes a tracked suggestion the author accepts or rejects.
@@ -397,7 +410,7 @@ EDIT TOOLS
 
 CRAFT
 - Honour the story bible, style guide, characters and world info. Keep continuity with the summaries and the previous chapter.
-- Show, don't summarise. Specific sensory detail, subtext, distinct character voices. Avoid purple prose, clichés, and tidy moralising endings.
+- ${chat ? "Distinct texting voices per character. Subtext, tension and reveals through dialogue and timing. No narration." : "Show, don't summarise. Specific sensory detail, subtext, distinct character voices."} Avoid purple prose, clichés, and tidy moralising endings.
 - Don't re-narrate events that already happened. Don't end chapters on a summary.
 
 After editing, reply with ONE or TWO short sentences telling the author what you did (not the text itself). If the request is ambiguous, make a sensible choice and say what you chose.`;

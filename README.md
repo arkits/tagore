@@ -1,6 +1,6 @@
 # Tagore
 
-A self-hosted writing room where an AI co-author works **on your manuscript**, not in a chat. Write ideas in a chapter's notes, ask for a draft, and every change the agent proposes arrives as a tracked suggestion you accept or reject. That works for a single word or a whole chapter.
+A self-hosted writing room where an AI co-author works **on your manuscript**, not in a chat window. Write a **Book**, or a **Chat** story told as a message thread. Each story has its own theme: Folio, Manga, Gothic, Diary or Holo Codex for books, and iMessage, WhatsApp, AIM, Yahoo! Messenger or Skype Classic for chats. Write ideas in a chapter's notes, ask for a draft, and every change the agent proposes arrives as a tracked suggestion you accept or reject. That works for a single word or a whole chapter.
 
 Stack: Bun · tRPC · React · shadcn/ui · Tailwind v4 · Drizzle + SQLite · TipTap · Vercel AI SDK (OpenRouter, Anthropic, OpenAI, or any OpenAI-compatible endpoint such as Ollama or LM Studio).
 

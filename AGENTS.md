@@ -20,7 +20,7 @@ Bun · tRPC v11 · React 19 · shadcn/ui (radix) · Tailwind v4 · Drizzle + bun
 
 ```bash
 bun run dev                 # API :3001 + Vite :5173 (proxies /api)
-TAGORE_MOCK=1 bun run dev   # adds offline "Mock writer" model (mock:writer)
+TAGORE_MOCK=1 bun run dev   # adds offline "Mock writer" model (mock:writer); writes chat threads for chat stories
 bun test                    # agent, context, lorebook, PNG card tests
 bunx tsc --noEmit -p .      # typecheck
 bun run db:generate         # after editing src/server/db/schema.ts (migrations auto-run on start)
@@ -38,8 +38,12 @@ bun run build && bun run start
 
 ## Conventions
 
-- The top level of the document stays flat: paragraph (with an optional script `kind`), heading, horizontalRule. Each block has an `id`. Don't add nested block types without updating the diff tools.
+- The top level of the document stays flat: paragraph (with an optional chat `speaker`), heading, horizontalRule. Each block has an `id`. Don't add nested block types without updating the diff tools.
+- Story formats: `prose` (Book) and `chat` (a message thread). In a chat, each paragraph is one message, written `{Name} text` in prompts, and `project.pov` is the "me" side.
+- Story themes: the registry is `src/web/lib/themes.ts`, and the CSS is `src/web/themes.css`, keyed on `html[data-story-theme]` / `[data-story-format]`. A theme overrides the design tokens (including `--ui-font`, `--display-font`, `--book-font` and `--page-ink`) and styles `.story-page`, `.story-desk`, `.chapter-title` and the chat chrome. `storyDecor.ts` tags messages (`msg-me`/`msg-them`/`msg-first`/`msg-last`, `data-time`, `.msg-name`) and prose dialogue (`.dlg`) for themes to hook into.
+- Streaming: the agent emits `draft` events (partial tool input, parsed with `parsePartialJson`), so edits render live as `draft-*` suggestions. Summaries stream from `POST /api/chapters/:id/summarize`. Keep new AI features streaming.
+- Suggestions live in a WeakMap keyed by the editor, not in ProseMirror plugin state, because TipTap reconfigures plugins on re-render.
 - AI SDK v7 names: `instructions` (not `system`), `isStepCount`, `result.stream`.
 - TipTap `configure()` deep-clones option objects. Pass callbacks as functions, not ref objects.
-- Theme: sepia light ("Daylight") and dark ("Lamplight") via CSS tokens in `src/web/index.css`. Use the tokens, not raw colors. Fonts: Newsreader (UI), Fraunces (display), EB Garamond (manuscript), Courier Prime (script and keys).
+- App theme: sepia light ("Daylight") and dark ("Lamplight") via CSS tokens in `src/web/index.css`. Use the tokens, not raw colors. Default fonts: Newsreader (UI), Fraunces (display), EB Garamond (manuscript), Courier Prime (keys).
 - The preview harness sets `PORT`. The API port uses `TAGORE_PORT` in development.

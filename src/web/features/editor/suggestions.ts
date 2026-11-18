@@ -11,6 +11,7 @@ import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { Fragment, type Node as PMNode, type Schema } from "@tiptap/pm/model";
 import { mdToInline, newBlockToNode, plainText, type NewBlock, type SuggestionOp } from "@shared/doc";
+import { messageAttrs, nameTag } from "./storyDecor";
 
 export type EditorSuggestion = { id: string; op: SuggestionOp; note: string };
 
@@ -20,7 +21,7 @@ type Handlers = {
   onFocus?: (id: string) => void;
 };
 
-export const suggestionKey = new PluginKey<{ list: EditorSuggestion[]; active: string | null }>("suggestions");
+export const suggestionKey = new PluginKey("suggestions");
 
 /* ----------------------------------------------------------------- lookup */
 
@@ -104,10 +105,19 @@ function renderInline(md: string, into: HTMLElement) {
 
 let getHandlers: (() => Handlers) | null = null;
 
+export const isDraftId = (id: string) => id.startsWith("draft-");
+
 function actions(id: string, label?: string): HTMLElement {
   const wrap = document.createElement("span");
   wrap.className = "sg-actions";
   wrap.contentEditable = "false";
+  if (isDraftId(id)) {
+    const l = document.createElement("span");
+    l.className = "sg-label sg-writing";
+    l.textContent = label ? `${label} · writing…` : "writing…";
+    wrap.appendChild(l);
+    return wrap;
+  }
   if (label) {
     const l = document.createElement("span");
     l.className = "sg-label";
@@ -142,26 +152,37 @@ function actions(id: string, label?: string): HTMLElement {
 
 function blockWidget(id: string, blocks: NewBlock[], label: string, note: string, active: boolean): HTMLElement {
   const box = document.createElement("div");
-  box.className = "sg-block";
+  box.className = isDraftId(id) ? "sg-block sg-streaming" : "sg-block";
   box.dataset.sgId = id;
   box.dataset.active = String(active);
   box.contentEditable = "false";
   if (note) box.title = note;
   box.addEventListener("click", () => getHandlers?.().onFocus?.(id));
   box.appendChild(actions(id, label));
-  for (const b of blocks) {
+  blocks.forEach((b, i) => {
     if (b.type === "scene_break") {
       const hr = document.createElement("p");
       hr.className = "sg-hr";
       hr.textContent = "⁂";
       box.appendChild(hr);
-      continue;
+      return;
     }
     const el = document.createElement(b.type === "heading" ? `h${b.level ?? 2}` : "p");
-    if (b.kind) el.dataset.kind = b.kind;
+    if (b.type === "heading") el.className = "msg-divider";
+    else {
+      const prev = blocks[i - 1];
+      const next = blocks[i + 1];
+      const same = (x?: NewBlock) => !!x && x.type === "paragraph" && !!b.speaker && x.speaker === b.speaker;
+      const attrs = messageAttrs(b.speaker, { first: !same(prev), last: !same(next) }) as Record<string, string>;
+      for (const [k, v] of Object.entries(attrs)) if (v) el.setAttribute(k, v);
+      if (b.speaker) {
+        el.dataset.speaker = b.speaker;
+        el.appendChild(nameTag(b.speaker));
+      }
+    }
     renderInline(b.text, el);
     box.appendChild(el);
-  }
+  });
   return box;
 }
 
@@ -171,6 +192,7 @@ function buildDecorations(state: EditorState, list: EditorSuggestion[], active: 
   for (const s of list) {
     const op = s.op;
     const isActive = active === s.id;
+    const ver = `${isActive}-${JSON.stringify(op).length}`;
     if (op.op === "replace_text") {
       const r = locateReplaceText(doc, op);
       if (!r) continue;
@@ -186,14 +208,14 @@ function buildDecorations(state: EditorState, list: EditorSuggestion[], active: 
             if (s.note) w.title = s.note;
             if (op.replace) {
               const ins = document.createElement("span");
-              ins.className = "sg-ins";
+              ins.className = isDraftId(s.id) ? "sg-ins sg-streaming-ins" : "sg-ins";
               renderInline(op.replace, ins);
               w.appendChild(ins);
             }
             w.appendChild(actions(s.id));
             return w;
           },
-          { side: 1, key: `sg-${s.id}-${isActive}`, ignoreSelection: true, stopEvent: () => true },
+          { side: 1, key: `sg-${s.id}-${ver}`, ignoreSelection: true, stopEvent: () => true },
         ),
       );
     } else if (op.op === "replace_block") {
@@ -203,7 +225,7 @@ function buildDecorations(state: EditorState, list: EditorSuggestion[], active: 
       decos.push(
         Decoration.widget(b.pos + b.node.nodeSize, () => blockWidget(s.id, op.blocks, "Rewrite", s.note, isActive), {
           side: -1,
-          key: `sg-${s.id}-${isActive}`,
+          key: `sg-${s.id}-${ver}`,
           ignoreSelection: true,
           stopEvent: () => true,
         }),
@@ -219,7 +241,7 @@ function buildDecorations(state: EditorState, list: EditorSuggestion[], active: 
       decos.push(
         Decoration.widget(pos, () => blockWidget(s.id, op.blocks, `+${words} words`, s.note, isActive), {
           side: op.afterId ? -1 : 1,
-          key: `sg-${s.id}-${op.blocks.length}-${isActive}`,
+          key: `sg-${s.id}-${ver}`,
           ignoreSelection: true,
           stopEvent: () => true,
         }),
@@ -246,7 +268,7 @@ function buildDecorations(state: EditorState, list: EditorSuggestion[], active: 
               w.appendChild(actions(s.id, `Delete ${op.blockIds.length}`));
               return w;
             },
-            { side: -1, key: `sg-${s.id}-${isActive}`, ignoreSelection: true, stopEvent: () => true },
+            { side: -1, key: `sg-${s.id}-${ver}`, ignoreSelection: true, stopEvent: () => true },
           ),
         );
       }
@@ -266,20 +288,20 @@ export const Suggestions = Extension.create<{ getHandlers: () => Handlers }>({
   addProseMirrorPlugins() {
     const handlers = this.options.getHandlers;
     getHandlers = handlers;
+    const editor = this.editor;
+    // The list lives outside plugin state: TipTap reconfigures plugins when the React component
+    // re-renders, which would otherwise silently wipe every pending suggestion.
+    let cache: { doc: unknown; s: SuggestionView; set: DecorationSet | null } | null = null;
     return [
       new Plugin({
         key: suggestionKey,
-        state: {
-          init: () => ({ list: [] as EditorSuggestion[], active: null as string | null }),
-          apply(tr, value) {
-            const meta = tr.getMeta(suggestionKey);
-            return meta ? { ...value, ...meta } : value;
-          },
-        },
         props: {
           decorations(state) {
-            const s = suggestionKey.getState(state)!;
-            return s.list.length ? buildDecorations(state, s.list, s.active) : null;
+            const s = store.get(editor);
+            if (!s?.list.length) return null;
+            if (cache && cache.doc === state.doc && cache.s === s) return cache.set;
+            cache = { doc: state.doc, s, set: buildDecorations(state, s.list, s.active) };
+            return cache.set;
           },
           handleDOMEvents: {
             mousedown(_view, event) {
@@ -294,9 +316,14 @@ export const Suggestions = Extension.create<{ getHandlers: () => Handlers }>({
   },
 });
 
+type SuggestionView = { list: EditorSuggestion[]; active: string | null };
+const store = new WeakMap<Editor, SuggestionView>();
+
 export function setSuggestions(editor: Editor, list: EditorSuggestion[], active: string | null = null) {
   if (editor.isDestroyed) return;
-  editor.view.dispatch(editor.state.tr.setMeta(suggestionKey, { list, active }).setMeta("addToHistory", false));
+  store.set(editor, { list, active });
+  // An empty, history-free transaction makes the view re-read decorations.
+  editor.view.dispatch(editor.state.tr.setMeta(suggestionKey, true).setMeta("addToHistory", false));
 }
 
 /* ------------------------------------------------------------- apply */

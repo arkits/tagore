@@ -19,7 +19,7 @@ const notFound = (what: string) => new TRPCError({ code: "NOT_FOUND", message: `
 
 function docStats(doc: PMDoc) {
   const blocks = docToBlocks(doc);
-  return { wordCount: blocksWordCount(blocks), contentHash: hashString(JSON.stringify(blocks.map((b) => [b.type, b.kind, b.text]))) };
+  return { wordCount: blocksWordCount(blocks), contentHash: hashString(JSON.stringify(blocks.map((b) => [b.type, b.speaker, b.text]))) };
 }
 
 /* ------------------------------------------------------------------ projects */
@@ -43,13 +43,23 @@ const projectsRouter = t.router({
     return row;
   }),
   create: p
-    .input(z.object({ title: z.string().min(1), format: z.enum(["prose", "script"]).default("prose"), premise: z.string().default("") }))
+    .input(
+      z.object({
+        title: z.string().min(1),
+        format: z.enum(["prose", "chat"]).default("prose"),
+        premise: z.string().default(""),
+        theme: z.string().max(40).optional(),
+        pov: z.string().max(80).optional(),
+      }),
+    )
     .mutation(({ input }) => {
       const id = nanoid(10);
-      db.insert(schema.projects).values({ id, ...input }).run();
+      db.insert(schema.projects)
+        .values({ id, ...input, theme: input.theme ?? (input.format === "chat" ? "imessage" : "folio"), pov: input.pov ?? "" })
+        .run();
       const chapterId = nanoid(10);
       db.insert(schema.chapters)
-        .values({ id: chapterId, projectId: id, title: input.format === "script" ? "Act One" : "Chapter One", position: 0, content: EMPTY_DOC })
+        .values({ id: chapterId, projectId: id, title: input.format === "chat" ? "Part One" : "Chapter One", position: 0, content: EMPTY_DOC })
         .run();
       return { id, chapterId };
     }),
@@ -58,7 +68,9 @@ const projectsRouter = t.router({
       z.object({
         id: z.string(),
         title: z.string().optional(),
-        format: z.enum(["prose", "script"]).optional(),
+        format: z.enum(["prose", "chat"]).optional(),
+        theme: z.string().max(40).optional(),
+        pov: z.string().max(80).optional(),
         premise: z.string().optional(),
         styleGuide: z.string().optional(),
         authorsNote: z.string().optional(),

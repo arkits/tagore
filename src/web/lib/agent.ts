@@ -26,3 +26,22 @@ export async function runAgent(req: RunRequest, onEvent: (e: AgentEvent) => void
     }
   }
 }
+
+/** Stream a chapter summary; resolves with the full text. */
+export async function streamSummary(chapterId: string, onDelta: (d: string) => void, signal?: AbortSignal): Promise<string> {
+  const res = await fetch(`/api/chapters/${chapterId}/summarize`, { method: "POST", signal });
+  if (!res.ok || !res.body) throw new Error(`Summary request failed (${res.status})`);
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let all = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    const chunk = dec.decode(value, { stream: true });
+    const err = chunk.indexOf("\u0000ERR:");
+    if (err >= 0) throw new Error(chunk.slice(err + 5));
+    all += chunk;
+    onDelta(chunk);
+  }
+  return all;
+}

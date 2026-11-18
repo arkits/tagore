@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { queryClient, trpc } from "@/lib/trpc";
+import { streamSummary } from "@/lib/agent";
 import { cn } from "@/lib/utils";
 
 /**
@@ -41,16 +42,29 @@ export function SummaryPage({ chapterId, projectId, title, visible }: { chapterI
       },
     }),
   );
-  const summarize = useMutation(
-    trpc.chapters.summarize.mutationOptions({
-      onSuccess: (r) => {
-        setSummary(r.summary);
-        queryClient.invalidateQueries({ queryKey: trpc.chapters.list.queryKey(projectId) });
-        queryClient.invalidateQueries({ queryKey: trpc.chapters.get.queryKey(chapterId) });
-      },
-      onError: (e) => toast.error(e.message),
-    }),
-  );
+  // Stream the summary onto the page as it's written.
+  const [streaming, setStreaming] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => abortRef.current?.abort(), []);
+  const summarize = async () => {
+    if (streaming) return;
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setStreaming(true);
+    setSummary("");
+    try {
+      await streamSummary(chapterId, (d) => setSummary((s) => s + d), ctrl.signal);
+      queryClient.invalidateQueries({ queryKey: trpc.chapters.list.queryKey(projectId) });
+      queryClient.invalidateQueries({ queryKey: trpc.chapters.get.queryKey(chapterId) });
+    } catch (e: any) {
+      if (!ctrl.signal.aborted) {
+        toast.error(e.message);
+        setSummary(chapter.data?.summary ?? "");
+      }
+    } finally {
+      setStreaming(false);
+    }
+  };
 
   const stale = !!meta?.stale && (meta?.wordCount ?? 0) > 0;
   const empty = (meta?.wordCount ?? 0) === 0;
@@ -71,20 +85,21 @@ export function SummaryPage({ chapterId, projectId, title, visible }: { chapterI
       </header>
 
       <div className="mt-8">
-        {empty && !summary ? (
+        {empty && !summary && !streaming ? (
           <p className="text-center italic text-muted-foreground text-lg mt-16">Nothing written yet — nothing to remember.</p>
         ) : (
           <textarea
             ref={taRef}
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
-            onBlur={() => chapter.data && summary !== chapter.data.summary && upd.mutate({ id: chapterId, summary })}
+            readOnly={streaming}
+            onBlur={() => !streaming && chapter.data && summary !== chapter.data.summary && upd.mutate({ id: chapterId, summary })}
             placeholder="No summary yet. Turn to it after writing, or let the agent make one when another chapter needs it."
             spellCheck
             className={cn(
               "w-full resize-none overflow-hidden bg-transparent outline-none text-[1.18rem] leading-[1.75] text-ink",
               "placeholder:italic placeholder:text-muted-foreground/70",
-              summarize.isPending && "opacity-40",
+              streaming && "caret-line",
             )}
           />
         )}
@@ -101,12 +116,12 @@ export function SummaryPage({ chapterId, projectId, title, visible }: { chapterI
           )}
         </span>
         <button
-          onClick={() => summarize.mutate(chapterId)}
-          disabled={summarize.isPending || empty}
+          onClick={summarize}
+          disabled={streaming || empty}
           className="ml-auto inline-flex items-center gap-1.5 rounded-full border px-3 h-7 hover:bg-accent hover:text-ink disabled:opacity-40 disabled:pointer-events-none transition-colors"
         >
-          {summarize.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-          {summary ? "Rewrite summary" : "Summarize"}
+          {streaming ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+          {streaming ? "Writing…" : summary ? "Rewrite summary" : "Summarize"}
         </button>
       </footer>
     </div>

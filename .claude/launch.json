@@ -5,8 +5,11 @@
     {
       "name": "tagore-mock",
       "runtimeExecutable": "env",
-      "runtimeArgs": ["TAGORE_MOCK=1", "TAGORE_DB=./data/mock.db", "bun", "run", "dev"],
-      "port": 5173
+      "runtimeArgs": [
+        "TAGORE_MOCK=1", "TAGORE_DB=./data/mock.db", "TAGORE_PORT=3002", "TAGORE_API_PORT=3002",
+        "bunx", "concurrently", "-k", "bun --watch src/server/index.ts", "vite --port 5174 --strictPort"
+      ],
+      "port": 5174
     }
   ]
 }

@@ -6,12 +6,12 @@
  * them inline as tracked changes. Accepting one applies it in the editor (re-resolving the block by
  * id, so positions are never stale) and the editor saves.
  */
-import { isStepCount, streamText, tool } from "ai";
+import { isStepCount, parsePartialJson, streamText, tool } from "ai";
 import { z } from "zod";
 import { and, asc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db, schema } from "../db";
-import { blockToLine, docToBlocks, plainText, textToBlocks, type NewBlock, type SuggestionOp } from "../../shared/doc";
+import { blockPlain, blockToLine, docToBlocks, plainText, textToBlocks, type NewBlock, type SuggestionOp } from "../../shared/doc";
 import { buildContext, otherChapters, type AgentMode } from "./context";
 import { getContextLength, getModel } from "./providers";
 import { summarizeChapter } from "./summarize";
@@ -36,6 +36,9 @@ export type AgentEvent =
   | { t: "text"; delta: string }
   | { t: "tool-start"; id: string; name: string }
   | { t: "tool-progress"; id: string; chars: number }
+  /** Live preview of an edit while the model is still writing it (partial tool input). */
+  | { t: "draft"; id: string; op: SuggestionOp; mergeInto?: string }
+  | { t: "draft-end"; id: string }
   | { t: "tool-result"; id: string; name: string; ok: boolean; message: string }
   | { t: "suggestion"; suggestion: Suggestion }
   | { t: "suggestion-removed"; id: string }
@@ -101,6 +104,35 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
       }
   };
 
+  const liveDrafts = new Set<string>();
+  const endDraft = (id: string) => {
+    if (liveDrafts.delete(id)) emit({ t: "draft-end", id });
+  };
+
+  /** Turn a partially streamed tool input into a previewable op (or null if not yet resolvable). */
+  const draftFor = (name: string, input: any): { op: SuggestionOp; mergeInto?: string } | null => {
+    if (!input || typeof input !== "object") return null;
+    if (name === "insert_after" && typeof input.text === "string" && typeof input.after_id === "string") {
+      const blocks = textToBlocks(input.text);
+      if (!blocks.length) return null;
+      if (lastInsert && (input.after_id === "LAST" || input.after_id === lastInsert.op.afterId))
+        return { op: { ...lastInsert.op, blocks: [...lastInsert.op.blocks, ...blocks] }, mergeInto: lastInsert.id };
+      const afterId = input.after_id === "START" ? null : input.after_id === "LAST" ? (ctx.blocks.at(-1)?.id ?? null) : input.after_id;
+      if (afterId && !blockById.has(afterId)) return null;
+      return { op: { op: "insert_after", afterId, blocks } };
+    }
+    if (name === "rewrite_block" && typeof input.text === "string" && blockById.has(input.block_id)) {
+      const blocks = textToBlocks(input.text);
+      return blocks.length ? { op: { op: "replace_block", blockId: input.block_id, blocks } } : null;
+    }
+    if (name === "replace_text" && typeof input.replace === "string" && typeof input.find === "string" && blockById.has(input.block_id)) {
+      const find = plainText(input.find);
+      if (!find || !plainText(blockById.get(input.block_id)!.text).includes(find)) return null;
+      return { op: { op: "replace_text", blockId: input.block_id, find, replace: input.replace } };
+    }
+    return null;
+  };
+
   const create = (op: SuggestionOp, note: string) => {
     const row = db
       .insert(schema.suggestions)
@@ -138,7 +170,8 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
         replace: z.string().describe("Replacement text. May use *italic* / **bold**."),
         reason,
       }),
-      execute: async ({ block_id, find, replace, reason }) => {
+      execute: async ({ block_id, find, replace, reason }, { toolCallId }) => {
+        endDraft(toolCallId);
         const block = blockById.get(block_id);
         if (!block) return `Error: block ${block_id} does not exist.`;
         const hay = plainText(block.text);
@@ -156,7 +189,8 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
     rewrite_block: tool({
       description: "Replace one whole block. The new text may span several lines (one paragraph per line).",
       inputSchema: z.object({ block_id: z.string(), text: z.string(), reason }),
-      execute: async ({ block_id, text, reason }) => {
+      execute: async ({ block_id, text, reason }, { toolCallId }) => {
+        endDraft(toolCallId);
         const err = claim([block_id]);
         if (err) return `Error: ${err}`;
         create({ op: "replace_block", blockId: block_id, blocks: parseBlocks(text) }, reason ?? "");
@@ -167,7 +201,8 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
       description:
         'Insert new blocks after a block. after_id: an existing block id, "START" for the top of the chapter, or "LAST" to continue right after your previous insert in this run. One paragraph per line.',
       inputSchema: z.object({ after_id: z.string(), text: z.string(), reason }),
-      execute: async ({ after_id, text, reason }) => {
+      execute: async ({ after_id, text, reason }, { toolCallId }) => {
+        endDraft(toolCallId);
         const blocks = parseBlocks(text);
         // Appending to the same anchor (or "LAST") extends the previous insert so order is preserved.
         if (lastInsert && (after_id === "LAST" || after_id === lastInsert.op.afterId)) {
@@ -195,7 +230,8 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
     delete_blocks: tool({
       description: "Delete whole blocks.",
       inputSchema: z.object({ block_ids: z.array(z.string()).min(1), reason }),
-      execute: async ({ block_ids, reason }) => {
+      execute: async ({ block_ids, reason }, { toolCallId }) => {
+        endDraft(toolCallId);
         const err = claim(block_ids);
         if (err) return `Error: ${err}`;
         create({ op: "delete_blocks", blockIds: block_ids }, reason ?? "");
@@ -221,7 +257,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
       execute: async ({ chapter_id }) => {
         const ch = db.select().from(schema.chapters).where(eq(schema.chapters.id, chapter_id)).get();
         if (!ch || ch.projectId !== chapter.projectId) return "Error: no such chapter.";
-        const text = docToBlocks(ch.content).map((b) => (b.type === "scene_break" ? "***" : b.text)).join("\n");
+        const text = docToBlocks(ch.content).map(blockPlain).join("\n");
         return `# ${ch.title}\n${text.length > 40000 ? text.slice(0, 40000) + "\n[… truncated]" : text}`;
       },
     }),
@@ -239,7 +275,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
         const hits: string[] = [];
         for (const ch of rows)
           for (const b of docToBlocks(ch.content)) {
-            const t = plainText(b.text);
+            const t = blockPlain(b);
             const i = t.toLowerCase().indexOf(q);
             if (i >= 0) hits.push(`${ch.title} [p:${b.id}]: …${t.slice(Math.max(0, i - 120), i + 200)}…`);
             if (hits.length >= 25) break;
@@ -262,6 +298,20 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
 
   let assistantText = "";
   const inputChars = new Map<string, number>();
+  const inputs = new Map<string, { name: string; buf: string; at: number }>();
+  const DRAFTABLE = new Set(["insert_after", "rewrite_block", "replace_text"]);
+  const pushDraft = async (id: string, force = false) => {
+    const t = inputs.get(id);
+    if (!t || !DRAFTABLE.has(t.name)) return;
+    const now = Date.now();
+    if (!force && now - t.at < 70) return; // ~14 fps is plenty for prose
+    t.at = now;
+    const { value } = await parsePartialJson(t.buf);
+    const d = draftFor(t.name, value);
+    if (!d) return;
+    liveDrafts.add(id);
+    emit({ t: "draft", id, ...d });
+  };
   for await (const part of result.stream) {
     switch (part.type) {
       case "text-delta":
@@ -270,20 +320,29 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
         break;
       case "tool-input-start":
         inputChars.set(part.id, 0);
+        inputs.set(part.id, { name: part.toolName, buf: "", at: 0 });
         emit({ t: "tool-start", id: part.id, name: part.toolName });
         break;
       case "tool-input-delta": {
         const n = (inputChars.get(part.id) ?? 0) + part.delta.length;
         inputChars.set(part.id, n);
+        const t = inputs.get(part.id);
+        if (t) t.buf += part.delta;
         emit({ t: "tool-progress", id: part.id, chars: n });
+        await pushDraft(part.id);
         break;
       }
+      case "tool-input-end":
+        await pushDraft(part.id, true);
+        break;
       case "tool-result": {
+        endDraft(part.toolCallId);
         const out = String(part.output ?? "");
         emit({ t: "tool-result", id: part.toolCallId, name: part.toolName, ok: !out.startsWith("Error"), message: out.slice(0, 300) });
         break;
       }
       case "tool-error":
+        endDraft(part.toolCallId);
         emit({ t: "tool-result", id: part.toolCallId, name: part.toolName, ok: false, message: String((part.error as any)?.message ?? part.error) });
         break;
       case "error":
@@ -292,6 +351,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
     }
   }
 
+  for (const id of [...liveDrafts]) endDraft(id);
   if (signal.aborted) return;
   const usage = await Promise.resolve(result.totalUsage).catch(() => undefined);
   const count = seq;

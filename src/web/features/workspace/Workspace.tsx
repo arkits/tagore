@@ -9,6 +9,8 @@ import { queryClient, trpc, type Suggestion } from "@/lib/trpc";
 import { runAgent, type AgentEvent } from "@/lib/agent";
 import { Manuscript, type SuggestionHandlers } from "../editor/Manuscript";
 import { applySuggestion, isApplicable, revealSuggestion, setSuggestions, type EditorSuggestion } from "../editor/suggestions";
+import { ChatComposer, ChatHeader, type Participant } from "../editor/ChatChrome";
+import { getTheme } from "@/lib/themes";
 import { AgentPanel, type LiveRun } from "../agent/AgentPanel";
 import { ChangesPanel } from "../agent/ChangesPanel";
 import { SummaryPage } from "./SummaryPage";
@@ -19,7 +21,7 @@ import { SettingsDialog } from "../settings/SettingsDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import type { AgentMode } from "@server/ai/context";
-import type { PMDoc } from "@shared/doc";
+import type { PMDoc, StoryFormat, SuggestionOp } from "@shared/doc";
 import { cn } from "@/lib/utils";
 
 type SaveState = "saved" | "dirty" | "saving" | "error";
@@ -32,6 +34,29 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
   useEffect(() => {
     if (!chapterId && chapters.data?.length) navigate(`/p/${projectId}/${chapters.data[0]!.id}`, { replace: true });
   }, [chapterId, chapters.data, projectId, navigate]);
+
+  const cast = useQuery(trpc.characters.forProject.queryOptions(projectId));
+  const format: StoryFormat = project.data?.format === "chat" ? "chat" : "prose";
+  const theme = getTheme(project.data?.theme, format);
+
+  // The story's theme restyles the whole app (including dialogs, which portal to <body>).
+  useEffect(() => {
+    if (!project.data) return;
+    const root = document.documentElement;
+    root.dataset.storyTheme = theme.id;
+    root.dataset.storyFormat = format;
+    return () => {
+      delete root.dataset.storyTheme;
+      delete root.dataset.storyFormat;
+    };
+  }, [theme.id, format, project.data]);
+
+  const pov = (project.data?.pov ?? "").trim() || (format === "chat" ? "Me" : "");
+  const participants: Participant[] = useMemo(() => {
+    const list: Participant[] = (cast.data ?? []).map(({ character: c }) => ({ name: c.card.nickname || c.name, avatar: c.avatar }));
+    if (pov && !list.some((p) => p.name.toLowerCase() === pov.toLowerCase())) list.unshift({ name: pov, avatar: null });
+    return list;
+  }, [cast.data, pov]);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -86,7 +111,7 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
         <span className="font-display text-[17px] truncate">{project.data?.title}</span>
         <div className="flex-1" />
         <ModelPicker compact />
-        <ThemeToggle />
+        {theme.hasDark && <ThemeToggle />}
         <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Settings">
           <Settings2 className="size-4" />
         </Button>
@@ -102,7 +127,15 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
           <Sidebar projectId={projectId} chapterId={chapterId} />
         </div>
         {chapterId && project.data ? (
-          <ChapterSession key={chapterId} projectId={projectId} chapterId={chapterId} format={project.data.format} />
+          <ChapterSession
+            key={chapterId}
+            projectId={projectId}
+            chapterId={chapterId}
+            format={format}
+            theme={theme.id}
+            pov={pov}
+            participants={participants}
+          />
         ) : (
           <div className="flex-1" />
         )}
@@ -116,7 +149,23 @@ function toEditorSuggestion(s: Suggestion): EditorSuggestion {
   return { id: s.id, op: s.op, note: s.note };
 }
 
-function ChapterSession({ projectId, chapterId, format }: { projectId: string; chapterId: string; format: "prose" | "script" }) {
+type Draft = { op: SuggestionOp; mergeInto?: string };
+
+function ChapterSession({
+  projectId,
+  chapterId,
+  format,
+  theme,
+  pov,
+  participants,
+}: {
+  projectId: string;
+  chapterId: string;
+  format: StoryFormat;
+  theme: string;
+  pov: string;
+  participants: Participant[];
+}) {
   const chapter = useQuery({ ...trpc.chapters.get.queryOptions(chapterId), staleTime: Infinity });
   const pending = useQuery({ ...trpc.suggestions.pending.queryOptions(chapterId), staleTime: Infinity });
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -128,6 +177,9 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
   const [live, setLive] = useState<LiveRun | null>(null);
   const [running, setRunning] = useState(false);
   const [hasSelection, setHasSelection] = useState(false);
+  const speakerNames = useMemo(() => participants.map((p) => p.name), [participants]);
+  /** Edits the model is still writing, keyed by tool call id — shown live, not yet actionable. */
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [docVersion, setDocVersion] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef(list);
@@ -194,9 +246,39 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
     if (pending.data) setList(pending.data.map(toEditorSuggestion));
   }, [pending.data]);
 
+  // What the editor draws: settled suggestions, with streaming drafts merged in or appended.
+  const display = useMemo(() => {
+    const ds = Object.entries(drafts);
+    if (!ds.length) return list;
+    const merged = new Map(ds.filter(([, d]) => d.mergeInto).map(([, d]) => [d.mergeInto!, d.op]));
+    const out = list.map((s) => (merged.has(s.id) ? { ...s, id: `draft-${s.id}`, op: merged.get(s.id)! } : s));
+    for (const [id, d] of ds) if (!d.mergeInto || !list.some((s) => s.id === d.mergeInto)) out.push({ id: `draft-${id}`, op: d.op, note: "" });
+    return out;
+  }, [list, drafts]);
+
   useEffect(() => {
-    if (editor) setSuggestions(editor, list, active);
-  }, [editor, list, active]);
+    if (editor) setSuggestions(editor, display, active);
+  }, [editor, display, active]);
+
+  // Follow the text as it streams in — unless the author has scrolled away in the last couple of seconds.
+  const userScrollAt = useRef(0);
+  useEffect(() => {
+    const main = document.getElementById("manuscript-scroll");
+    const mark = () => (userScrollAt.current = Date.now());
+    main?.addEventListener("wheel", mark, { passive: true });
+    main?.addEventListener("touchmove", mark, { passive: true });
+    return () => {
+      main?.removeEventListener("wheel", mark);
+      main?.removeEventListener("touchmove", mark);
+    };
+  }, []);
+  useEffect(() => {
+    if (!editor || !Object.keys(drafts).length || Date.now() - userScrollAt.current < 2500) return;
+    const els = editor.view.dom.querySelectorAll<HTMLElement>(".sg-streaming");
+    const last = els[els.length - 1];
+    const tail = (last?.lastElementChild as HTMLElement | null) ?? last;
+    tail?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [drafts, editor]);
 
   useEffect(() => {
     if (!editor) return;
@@ -312,6 +394,12 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
             setList((l) => (l.some((x) => x.id === s.id) ? l.map((x) => (x.id === s.id ? s : x)) : [...l, s]));
             break;
           }
+          case "draft":
+            setDrafts((d) => ({ ...d, [e.id]: { op: e.op, mergeInto: e.mergeInto } }));
+            break;
+          case "draft-end":
+            setDrafts(({ [e.id]: _gone, ...rest }) => rest);
+            break;
           case "suggestion-removed":
             setList((l) => l.filter((x) => x.id !== e.id));
             break;
@@ -329,6 +417,7 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
         if (!ctrl.signal.aborted) setLive((l) => l && { ...l, error: err.message });
         else setLive((l) => l && { ...l, error: "Stopped." });
       } finally {
+        setDrafts({});
         setRunning(false);
         abortRef.current = null;
         queryClient.invalidateQueries({ queryKey: trpc.agent.log.queryKey(chapterId) });
@@ -352,7 +441,7 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
 
   return (
     <>
-      <main className="flex-1 min-w-0 overflow-y-auto thin-scroll" id="manuscript-scroll">
+      <main className="story-desk flex-1 min-w-0 overflow-y-auto thin-scroll" id="manuscript-scroll">
         <div className="mx-auto max-w-[780px] px-6 pt-8 pb-40">
           <div className="relative">
             <ChapterTitle chapterId={chapterId} projectId={projectId} title={chapter.data.title} />
@@ -375,8 +464,33 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
           </div>
           <div className="page-flip" data-flipped={flipped} data-animate={flipCount > 0}>
             <div className="page-inner">
-              <article className="page-face paper rounded-[3px] px-[72px] pt-10 pb-24 min-h-[80vh]" inert={flipped}>
-                <Manuscript initial={chapter.data.content} format={format} handlers={handlers} onChange={onChange} onReady={setEditor} />
+              <article
+                className={cn("page-face paper story-page rounded-[3px] min-h-[80vh]", format === "chat" ? "chat-page" : "px-[72px] pt-10 pb-24")}
+                inert={flipped}
+                data-group={participants.filter((p) => p.name !== pov).length > 1}
+              >
+                {format === "chat" && <ChatHeader theme={theme} pov={pov} others={participants.filter((p) => p.name !== pov)} />}
+                <div className={format === "chat" ? "chat-thread" : undefined}>
+                  <Manuscript
+                    initial={chapter.data.content}
+                    format={format}
+                    pov={pov}
+                    speakers={speakerNames}
+                    handlers={handlers}
+                    onChange={onChange}
+                    onReady={setEditor}
+                  />
+                </div>
+                {format === "chat" && (
+                  <ChatComposer
+                    editor={editor}
+                    theme={theme}
+                    pov={pov}
+                    speakers={speakerNames}
+                    busy={running}
+                    onReply={() => run("continue", "")}
+                  />
+                )}
               </article>
               <article className="page-face page-back paper rounded-[3px] px-[72px] pt-12 pb-16" inert={!flipped}>
                 <SummaryPage chapterId={chapterId} projectId={projectId} title={chapter.data.title} visible={flipped} />
@@ -391,7 +505,7 @@ function ChapterSession({ projectId, chapterId, format }: { projectId: string; c
           </div>
         </div>
         {list.length > 0 && (
-          <div className="sticky bottom-5 flex justify-center pointer-events-none">
+          <div className="suggest-bar sticky bottom-5 z-30 flex justify-center pointer-events-none">
             <div className="pointer-events-auto flex items-center gap-2 rounded-full border bg-popover/95 backdrop-blur pl-4 pr-1.5 py-1.5 shadow-lg">
               <span className="text-sm">
                 {list.length} suggestion{list.length === 1 ? "" : "s"}
@@ -460,7 +574,7 @@ function ChapterTitle({ chapterId, projectId, title }: { chapterId: string; proj
       onChange={(e) => setV(e.target.value)}
       onBlur={() => v.trim() && v !== title && upd.mutate({ id: chapterId, title: v.trim() })}
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-      className="w-full bg-transparent text-center font-display text-[34px] font-light tracking-tight text-ink outline-none mb-6 placeholder:text-muted-foreground"
+      className="chapter-title w-full bg-transparent px-28 text-center font-display text-[34px] font-light tracking-tight text-ink outline-none mb-6 placeholder:text-muted-foreground"
       placeholder="Untitled chapter"
     />
   );
