@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import type { Editor } from "@tiptap/react";
 import { toast } from "sonner";
-import { CheckCheck, Download, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, RotateCcw, ScrollText, Settings2, X } from "lucide-react";
+import { CheckCheck, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, RotateCcw, ScrollText, Settings2, X } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { queryClient, trpc, type Suggestion } from "@/lib/trpc";
 import { runAgent, type AgentEvent } from "@/lib/agent";
@@ -12,19 +12,18 @@ import { applySuggestion, isApplicable, revealSuggestion, setSuggestions, type E
 import { setWorkingRange } from "../editor/selectionMark";
 import { ChatComposer, ChatHeader, type Participant } from "../editor/ChatChrome";
 import { getTheme } from "@/lib/themes";
-import { ThemeSwitcher } from "../project/ThemeSwitcher";
 import { AgentPanel, type LiveRun } from "../agent/AgentPanel";
 import { ChangesPanel } from "../agent/ChangesPanel";
 import { SummaryPage } from "./SummaryPage";
 import { Sidebar } from "./Sidebar";
-import { ModelPicker } from "../settings/ModelPicker";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsDialog } from "../settings/SettingsDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import type { AgentMode } from "@server/ai/context";
 import type { PMDoc, StoryFormat, SuggestionOp } from "@shared/doc";
 import { cn } from "@/lib/utils";
+
+const sidebarTransition = "shrink-0 overflow-hidden flex transition-[width,opacity] duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] motion-reduce:transition-none";
 
 type SaveState = "saved" | "dirty" | "saving" | "error";
 
@@ -135,14 +134,6 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
         <span className="text-muted-foreground">/</span>
         <span className="font-display text-[17px] truncate">{project.data?.title}</span>
         <div className="flex-1" />
-        {project.data && (
-          <Button variant="ghost" size="icon" title="Export story as Markdown" aria-label="Export story as Markdown" onClick={exportStory}>
-            <Download className="size-4" />
-          </Button>
-        )}
-        {project.data && <ThemeSwitcher project={project.data} />}
-        <ModelPicker compact />
-        {theme.hasDark && <ThemeToggle />}
         <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Settings">
           <Settings2 className="size-4" />
         </Button>
@@ -164,7 +155,7 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
         <div
           inert={!sidebarOpen}
           className={cn(
-            "shrink-0 overflow-hidden flex transition-[width,opacity] duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)]",
+            sidebarTransition,
             sidebarOpen ? "w-64 opacity-100" : "w-0 opacity-0",
           )}
         >
@@ -187,7 +178,11 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
           <div className="flex-1" />
         )}
       </div>
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        story={project.data ? { project: project.data, onExport: exportStory } : undefined}
+      />
     </div>
   );
 }
@@ -611,40 +606,46 @@ function ChapterSession({
         )}
       </main>
 
-      <aside id="agent-sidebar" aria-label="Agent and changes" className={cn("w-[380px] shrink-0 border-l bg-sidebar/50 flex-col min-h-0", agentOpen ? "flex" : "hidden")}>
-        <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col min-h-0 gap-0">
-          <div className="px-3 pt-3 pb-2 border-b">
-            <TabsList className="w-full">
-              <TabsTrigger value="agent">Agent</TabsTrigger>
-              <TabsTrigger value="changes">
-                Changes{list.length ? <span className="ml-1 rounded-full bg-oxblood text-primary-foreground text-[10px] px-1.5">{list.length}</span> : null}
-              </TabsTrigger>
-            </TabsList>
-          </div>
-          <TabsContent value="agent" className="flex-1 min-h-0 mt-0">
-            <AgentPanel
-              chapterId={chapterId}
-              live={live}
-              running={running}
-              hasSelection={hasSelection}
-              onRun={run}
-              onStop={() => abortRef.current?.abort()}
-            />
-          </TabsContent>
-          <TabsContent value="changes" className="flex-1 min-h-0 mt-0">
-            <ChangesPanel
-              list={list}
-              stale={stale}
-              active={active}
-              onAccept={accept}
-              onReject={reject}
-              onAcceptAll={acceptAll}
-              onRejectAll={rejectAll}
-              onFocus={focus}
-            />
-          </TabsContent>
-        </Tabs>
-      </aside>
+      <div
+        id="agent-sidebar"
+        inert={!agentOpen}
+        className={cn(sidebarTransition, "justify-end", agentOpen ? "w-[380px] opacity-100" : "w-0 opacity-0")}
+      >
+        <aside aria-label="Agent and changes" className="flex w-[380px] shrink-0 flex-col min-h-0 border-l bg-sidebar/50">
+          <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col min-h-0 gap-0">
+            <div className="px-3 pt-3 pb-2 border-b">
+              <TabsList className="w-full">
+                <TabsTrigger value="agent">Agent</TabsTrigger>
+                <TabsTrigger value="changes">
+                  Changes{list.length ? <span className="ml-1 rounded-full bg-oxblood text-primary-foreground text-[10px] px-1.5">{list.length}</span> : null}
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent value="agent" className="flex-1 min-h-0 mt-0">
+              <AgentPanel
+                chapterId={chapterId}
+                live={live}
+                running={running}
+                hasSelection={hasSelection}
+                onRun={run}
+                onStop={() => abortRef.current?.abort()}
+              />
+            </TabsContent>
+            <TabsContent value="changes" className="flex-1 min-h-0 mt-0">
+              <ChangesPanel
+                list={list}
+                stale={stale}
+                active={active}
+                onAccept={accept}
+                onReject={reject}
+                onAcceptAll={acceptAll}
+                onRejectAll={rejectAll}
+                onFocus={focus}
+              />
+            </TabsContent>
+          </Tabs>
+        </aside>
+      </div>
     </>
   );
 }

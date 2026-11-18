@@ -5,11 +5,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowUpRight, Eye, EyeOff, Loader2, Lock, Monitor, Moon, PlugZap, Sun } from "lucide-react";
-import { queryClient, trpc } from "@/lib/trpc";
+import { ArrowUpRight, Download, Eye, EyeOff, Loader2, Lock, Monitor, Moon, PlugZap, Sun } from "lucide-react";
+import { queryClient, trpc, type Project } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { ThemeSwitcher } from "../project/ThemeSwitcher";
 import { ModelPicker } from "./ModelPicker";
 import { useTheme, type ThemePref } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -43,7 +44,18 @@ const PROVIDERS: { id: ProviderId; name: string; mark: string; blurb: string; hr
   { id: "custom", name: "Local & custom", mark: "⌂", blurb: "Ollama, LM Studio, llama.cpp, vLLM — anything OpenAI-compatible." },
 ];
 
-export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+const STORY_SECTION = { id: "story", numeral: "V", title: "Story" } as const;
+
+export function SettingsDialog({
+  open,
+  onOpenChange,
+  story,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  story?: { project: Project; onExport: () => Promise<void> };
+}) {
+  const sections = story ? [...SECTIONS, STORY_SECTION] : SECTIONS;
   const settings = useQuery(trpc.settings.get.queryOptions());
   const [f, setF] = useState<Form | null>(null);
   const [initial, setInitial] = useState("");
@@ -77,11 +89,11 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     if (!root) return;
     const top = root.getBoundingClientRect().top + root.clientHeight * 0.33;
     let current: string = SECTIONS[0].id;
-    for (const sec of SECTIONS) {
+    for (const sec of sections) {
       const el = root.querySelector(`#${sec.id}`);
       if (el && el.getBoundingClientRect().top <= top) current = sec.id;
     }
-    if (root.scrollTop + root.clientHeight >= root.scrollHeight - 4) current = SECTIONS[SECTIONS.length - 1].id;
+    if (root.scrollTop + root.clientHeight >= root.scrollHeight - 4) current = sections.at(-1)!.id;
     setActive(current);
   };
 
@@ -136,10 +148,10 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className="px-7 pt-8 pb-6">
             <p className="small-caps text-[11px] text-muted-foreground">Tagore</p>
             <DialogTitle className="font-display text-[34px] leading-[1.05] font-light italic tracking-tight mt-1">Settings</DialogTitle>
-            <DialogDescription className="sr-only">Providers, models, generation and appearance.</DialogDescription>
+            <DialogDescription className="sr-only">Providers, models, generation, appearance{story ? ", and story settings." : "."}</DialogDescription>
           </div>
           <nav className="px-4 space-y-0.5">
-            {SECTIONS.map((s) => (
+            {sections.map((s) => (
               <button
                 key={s.id}
                 onClick={() => jump(s.id)}
@@ -217,7 +229,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               </div>
             </Section>
 
-            <Section id="models" numeral="II" title="Models" lede="You can also switch the writing model at any moment from the header.">
+            <Section id="models" numeral="II" title="Models" lede="Choose the models for writing and chapter summaries.">
               <div className="divide-y divide-rule border-y border-rule">
                 <LedgerRow title="Writing model" note="Drafts, continues and revises. The stronger, the better the prose.">
                   <ModelPicker value={f.model} onChange={(r) => setF({ ...f, model: r })} className="w-full max-w-none justify-between h-10" />
@@ -225,7 +237,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 <LedgerRow title="Summary model" note="Keeps chapter summaries — the agent’s long memory — current. A small, fast model is plenty.">
                   <div className="flex gap-2">
                     <ModelPicker
-                      value={f.summaryModel || undefined}
+                      value={f.summaryModel || f.model}
                       onChange={(r) => setF({ ...f, summaryModel: r })}
                       className="flex-1 max-w-none justify-between h-10"
                     />
@@ -257,6 +269,25 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
             <Section id="appearance" numeral="IV" title="Appearance" lede="Saved instantly, on this device.">
               <ThemeTiles />
             </Section>
+
+            {story && (
+              <Section {...STORY_SECTION} lede={story.project.title}>
+                <div className="divide-y divide-rule border-y border-rule">
+                  <div className="space-y-3 py-5">
+                    <div>
+                      <h3 className="font-display text-[17px] leading-tight">Story theme</h3>
+                      <p className="text-[13px] text-muted-foreground mt-1">Applies immediately to this story.</p>
+                    </div>
+                    <ThemeSwitcher project={story.project} />
+                  </div>
+                  <LedgerRow title="Export manuscript" note="Download all chapters in order as a Markdown file.">
+                    <Button variant="outline" onClick={story.onExport}>
+                      <Download className="size-4" /> Export story as Markdown
+                    </Button>
+                  </LedgerRow>
+                </div>
+              </Section>
+            )}
           </div>
 
           <footer className="shrink-0 flex items-center gap-3 border-t bg-sidebar/60 px-10 py-3.5">
@@ -585,6 +616,7 @@ function ThemeTiles() {
         <button
           key={t.id}
           onClick={() => setTheme(t.id)}
+          aria-pressed={pref === t.id}
           className={cn(
             "group rounded-[4px] border p-2 text-left transition-all",
             pref === t.id ? "border-oxblood ring-1 ring-oxblood/30" : "hover:border-ring",

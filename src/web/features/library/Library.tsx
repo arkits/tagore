@@ -9,8 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SettingsDialog } from "../settings/SettingsDialog";
-import { ModelPicker } from "../settings/ModelPicker";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { DEFAULT_THEME, getTheme } from "@/lib/themes";
 import { ThemePicker } from "../project/ThemePicker";
@@ -37,9 +35,7 @@ export function Library() {
       <header className="max-w-5xl mx-auto px-8 pt-10 flex items-center gap-3">
         <h1 className="font-display text-4xl font-light tracking-tight text-oxblood">Tagore</h1>
         <div className="flex-1" />
-        <ModelPicker compact />
-        <ThemeToggle />
-        <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)}>
+        <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Settings" aria-label="Settings">
           <Settings2 className="size-4" />
         </Button>
       </header>

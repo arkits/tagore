@@ -66,6 +66,7 @@ export function ThemePicker({ format, value, onChange, compact }: { format: Stor
           key={t.id}
           type="button"
           onClick={() => onChange(t.id)}
+          aria-pressed={value === t.id}
           className={cn(
             "group rounded-[4px] border p-1.5 text-left transition-all hover:-translate-y-0.5",
             value === t.id ? "border-oxblood ring-1 ring-oxblood/40" : "hover:border-ring",

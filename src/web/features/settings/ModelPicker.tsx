@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, RefreshCw } from "lucide-react";
 import { queryClient, trpc } from "@/lib/trpc";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -18,31 +18,21 @@ function fmtCtx(n?: number) {
   return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M` : `${Math.round(n / 1000)}k`;
 }
 
-/** Live model switcher. Value is "<provider>:<modelId>". */
+/** Settings model picker. Value is "<provider>:<modelId>". */
 export function ModelPicker({
   value,
   onChange,
   className,
-  compact,
 }: {
-  value?: string;
-  onChange?: (ref: string) => void;
+  value: string;
+  onChange: (ref: string) => void;
   className?: string;
-  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const settings = useQuery(trpc.settings.get.queryOptions());
   const models = useQuery({ ...trpc.settings.models.queryOptions(), staleTime: 10 * 60_000 });
-  const save = useMutation(
-    trpc.settings.update.mutationOptions({
-      onSuccess: (s) => queryClient.setQueryData(trpc.settings.get.queryKey(), s),
-    }),
-  );
-  const current = value ?? settings.data?.model ?? "";
   const pick = (ref: string) => {
-    if (onChange) onChange(ref);
-    else save.mutate({ model: ref });
+    onChange(ref);
     setOpen(false);
   };
 
@@ -55,8 +45,8 @@ export function ModelPicker({
     return g;
   }, [models.data]);
 
-  const currentInfo = models.data?.models.find((m) => m.id === current);
-  const label = currentInfo?.name ?? (current.split(":").slice(1).join(":") || current || "Choose model");
+  const currentInfo = models.data?.models.find((m) => m.id === value);
+  const label = currentInfo?.name ?? (value.split(":").slice(1).join(":") || value || "Choose model");
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -68,7 +58,7 @@ export function ModelPicker({
           )}
         >
           <span className="size-1.5 rounded-full bg-sage shrink-0" />
-          <span className="truncate">{compact ? label.replace(/^[^:]+:\s*/, "") : label}</span>
+          <span className="truncate">{label}</span>
           <ChevronsUpDown className="size-3.5 opacity-50 shrink-0" />
         </button>
       </PopoverTrigger>
@@ -103,7 +93,7 @@ export function ModelPicker({
               <CommandGroup key={provider} heading={PROVIDER_LABEL[provider] ?? provider}>
                 {list.map((m) => (
                   <CommandItem key={m.id} value={`${m.name} ${m.id}`} onSelect={() => pick(m.id)} className="gap-2">
-                    <Check className={cn("size-3.5", m.id === current ? "opacity-100" : "opacity-0")} />
+                    <Check className={cn("size-3.5", m.id === value ? "opacity-100" : "opacity-0")} />
                     <span className="truncate flex-1">{m.name}</span>
                     <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
                       {fmtCtx(m.contextLength)}
