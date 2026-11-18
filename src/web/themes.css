@@ -35,6 +35,35 @@
 .chat-back { display: none; }
 
 .chat-composer { position: sticky; bottom: 0; z-index: 20; padding: 8px 12px 12px; }
+.chat-typing-bubble {
+  position: relative;
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px 4px;
+  padding: 9px 11px;
+  border-radius: 999px;
+  background: var(--bubble-them, var(--secondary));
+  color: var(--bubble-them-ink, var(--secondary-foreground));
+}
+.chat-typing-bubble > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.45;
+  animation: chat-typing-dot 1.2s ease-in-out infinite;
+}
+.chat-typing-bubble > span:nth-child(2) { animation-delay: 140ms; }
+.chat-typing-bubble > span:nth-child(3) { animation-delay: 280ms; }
+@keyframes chat-typing-dot {
+  0%, 56%, 100% { transform: translateY(0); opacity: 0.45; }
+  24% { transform: translateY(-2px); opacity: 0.85; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-typing-bubble > span { animation: none; }
+}
 .chat-compose-row { display: flex; align-items: flex-end; gap: 8px; }
 .chat-as { max-width: 92px; font: inherit; font-size: 12px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: inherit; padding: 4px 6px; height: 32px; }
 .chat-input { flex: 1; resize: none; font: inherit; font-size: 15px; line-height: 20px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 18px; background: var(--card); color: var(--page-ink); outline: none; min-height: 34px; }
@@ -112,6 +141,7 @@
   animation: typing 1.1s ease-in-out infinite;
 }
 @keyframes typing { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+.chat-page:has(.chat-typing-bubble) .chat-format .sg-block.sg-streaming::after { content: none; }
 
 /* prose: streaming caret on the passage being written */
 .sg-streaming > p:last-of-type::after, .sg-streaming-ins::after { content: "▍"; color: var(--oxblood); animation: blink 1s steps(1) infinite; margin-left: 1px; }
@@ -464,6 +494,17 @@
 [data-story-theme="imessage"] .chat-page[data-group="true"] .chat-format p.msg-them.msg-first { margin-top: 22px; }
 [data-story-theme="imessage"] .chat-format h2.msg-divider { color: #8e8e93; opacity: 1; font-weight: 500; }
 [data-story-theme="imessage"] .chat-composer { background: var(--hdr); backdrop-filter: blur(20px); border-radius: 0 0 var(--screen-radius) var(--screen-radius); padding: 6px 12px 17px; }
+[data-story-theme="imessage"] .chat-typing-bubble::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bubble-them);
+  box-shadow: -4px 4px 0 -1.5px var(--bubble-them);
+}
 [data-story-theme="imessage"] .chat-composer::after { content: ""; position: absolute; bottom: 5px; left: 50%; width: 104px; height: 4px; translate: -50% 0; border-radius: 3px; background: var(--page-ink); opacity: 0.85; }
 [data-story-theme="imessage"] .chat-input { min-width: 0; border-radius: 19px; padding-right: 40px; background: var(--paper); border-color: var(--input); }
 [data-story-theme="imessage"] .chat-send { width: 29px; height: 29px; min-width: 29px; margin-left: -45px; margin-bottom: 3px; background: #0a84ff; }

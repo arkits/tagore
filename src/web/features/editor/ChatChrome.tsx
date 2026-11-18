@@ -136,7 +136,14 @@ export function ChatComposer({
         <span>link</span>
         <span>☺</span>
       </div>
-      {awaitingReply && <p role="status" className="px-3 pb-1 text-xs text-muted-foreground">Typing…</p>}
+      <div role="status" className="sr-only">{awaitingReply ? "Typing…" : ""}</div>
+      {awaitingReply && (
+        <div className="chat-typing-bubble" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+      )}
       <div className="chat-compose-row">
         <select className="chat-as" value={as} onChange={(e) => setAs(e.target.value)} title="Send as">
           {speakers.map((n) => (
