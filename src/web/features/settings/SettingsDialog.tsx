@@ -1,8 +1,4 @@
-/**
- * Settings — styled like a library catalogue drawer: a contents rail with roman-numeral
- * sections on the left, index-card provider entries with rubber-stamp status on the right.
- */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowUpRight, Download, Eye, EyeOff, Loader2, Lock, Monitor, Moon, PlugZap, Sun } from "lucide-react";
@@ -40,7 +36,6 @@ const SECTIONS = [
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
-const SECTION_NUMERALS = ["I", "II", "III", "IV", "V"];
 
 const PROVIDERS: { id: ProviderId; name: string; mark: string; blurb: string; href?: string }[] = [
   { id: "openrouter", name: "OpenRouter", mark: "O", blurb: "One key, hundreds of models — the easiest start.", href: "https://openrouter.ai/keys" },
@@ -60,17 +55,11 @@ export function SettingsDialog({
 }) {
   const sections = story ? SECTIONS : SECTIONS.slice(1);
   const firstSection = sections[0]!.id;
-  const section = (id: SectionId) => ({
-    id,
-    title: SECTIONS.find((entry) => entry.id === id)!.title,
-    numeral: SECTION_NUMERALS[sections.findIndex((entry) => entry.id === id)]!,
-  });
   const settings = useQuery(trpc.settings.get.queryOptions());
   const [f, setF] = useState<Form | null>(null);
   const [initial, setInitial] = useState("");
   const [tests, setTests] = useState<Partial<Record<ProviderId, TestState>>>({});
   const [active, setActive] = useState<SectionId>(firstSection);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const s = settings.data;
@@ -92,20 +81,6 @@ export function SettingsDialog({
     setActive(firstSection);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, settings.data === undefined, firstSection]);
-
-  // Scroll-spy for the contents rail: the last section whose heading has passed the top third.
-  const onScroll = () => {
-    const root = scrollRef.current;
-    if (!root) return;
-    const top = root.getBoundingClientRect().top + root.clientHeight * 0.33;
-    let current = firstSection;
-    for (const sec of sections) {
-      const el = root.querySelector(`#${sec.id}`);
-      if (el && el.getBoundingClientRect().top <= top) current = sec.id;
-    }
-    if (root.scrollTop + root.clientHeight >= root.scrollHeight - 4) current = sections.at(-1)!.id;
-    setActive(current);
-  };
 
   const save = useMutation(
     trpc.settings.update.mutationOptions({
@@ -139,11 +114,6 @@ export function SettingsDialog({
     }
   };
 
-  const jump = (id: SectionId) => {
-    setActive(id);
-    scrollRef.current?.querySelector(`#${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -160,25 +130,27 @@ export function SettingsDialog({
             <DialogTitle className="font-display text-[34px] leading-[1.05] font-light italic tracking-tight mt-1">Settings</DialogTitle>
             <DialogDescription className="sr-only">{story ? "Story, models, providers, generation, and appearance." : "Models, providers, generation, and appearance."}</DialogDescription>
           </div>
-          <nav className="flex overflow-x-auto px-2 pb-2 md:block md:overflow-visible md:px-4 md:pb-0 md:space-y-0.5">
-            {sections.map((s, index) => (
+          <nav aria-label="Settings sections" className="flex flex-wrap gap-1 px-2 pb-2 md:block md:px-4 md:pb-0 md:space-y-0.5">
+            {sections.map((s) => (
               <button
                 key={s.id}
-                onClick={() => jump(s.id)}
-                aria-current={active === s.id ? "location" : undefined}
+                type="button"
+                onClick={() => setActive(s.id)}
+                aria-current={active === s.id ? "true" : undefined}
+                aria-controls="settings-panel"
                 className={cn(
-                  "group relative shrink-0 flex items-baseline gap-3 rounded-sm px-3 py-2 text-left transition-colors md:w-full md:pl-4",
-                  active === s.id ? "text-ink" : "text-muted-foreground hover:text-ink",
+                  "relative shrink-0 rounded-sm px-2.5 py-2 text-left text-[15px] transition-colors md:w-full md:px-4",
+                  active === s.id ? "bg-accent text-ink" : "text-muted-foreground hover:bg-accent/50 hover:text-ink",
                 )}
               >
                 <span
+                  aria-hidden
                   className={cn(
                     "absolute left-0 top-2 bottom-2 w-[2px] rounded-full bg-oxblood transition-all duration-300",
                     active === s.id ? "opacity-100" : "opacity-0 scale-y-50",
                   )}
                 />
-                <span className={cn("hidden md:inline font-display text-[13px] w-6 tabular-nums transition-colors", active === s.id && "text-oxblood")}>{SECTION_NUMERALS[index]}.</span>
-                <span className="text-[15px]">{s.title}</span>
+                {s.title}
               </button>
             ))}
           </nav>
@@ -193,9 +165,9 @@ export function SettingsDialog({
 
         {/* ------------------------------------------------------------- content */}
         <div className="flex flex-col min-h-0">
-          <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto thin-scroll px-4 pt-6 pb-10 space-y-14 md:pt-9 md:px-[max(2.5rem,calc((100%_-_58rem)/2))]">
-            {story && (
-              <Section {...section("story")} lede={story.project.title}>
+          <div key={active} id="settings-panel" className="flex-1 overflow-y-auto thin-scroll px-4 pt-6 pb-10 md:pt-9 md:px-[max(2.5rem,calc((100%_-_58rem)/2))]">
+            {active === "story" && story && (
+              <Section title="Story" lede={story.project.title}>
                 <div className="divide-y divide-rule border-y border-rule">
                   <div className="space-y-3 py-5">
                     <div>
@@ -213,112 +185,120 @@ export function SettingsDialog({
               </Section>
             )}
 
-            <Section {...section("models")} lede="Choose the models for writing and chapter summaries.">
-              <div className="divide-y divide-rule border-y border-rule">
-                <LedgerRow title="Writing model" note="Drafts, continues and revises. The stronger, the better the prose.">
-                  <ModelPicker value={f.model} onChange={(r) => setF({ ...f, model: r })} className="w-full max-w-none justify-between h-10" />
-                </LedgerRow>
-                <LedgerRow title="Summary model" note="Keeps chapter summaries — the agent’s long memory — current. A small, fast model is plenty.">
-                  <div className="flex gap-2">
-                    <ModelPicker
-                      value={f.summaryModel || f.model}
-                      onChange={(r) => setF({ ...f, summaryModel: r })}
-                      className="flex-1 max-w-none justify-between h-10"
-                    />
-                    {f.summaryModel && (
-                      <Button variant="ghost" size="sm" className="h-10" onClick={() => setF({ ...f, summaryModel: "" })}>
-                        Use writing model
-                      </Button>
-                    )}
-                  </div>
-                  {!f.summaryModel && <p className="text-xs italic text-muted-foreground mt-1.5">Currently the writing model.</p>}
-                </LedgerRow>
-              </div>
-            </Section>
+            {active === "models" && (
+              <Section title="Models" lede="Choose the models for writing and chapter summaries.">
+                <div className="divide-y divide-rule border-y border-rule">
+                  <LedgerRow title="Writing model" note="Drafts, continues and revises. The stronger, the better the prose.">
+                    <ModelPicker value={f.model} onChange={(r) => setF({ ...f, model: r })} className="w-full max-w-none justify-between h-10" />
+                  </LedgerRow>
+                  <LedgerRow title="Summary model" note="Keeps chapter summaries — the agent’s long memory — current. A small, fast model is plenty.">
+                    <div className="flex gap-2">
+                      <ModelPicker
+                        value={f.summaryModel || f.model}
+                        onChange={(r) => setF({ ...f, summaryModel: r })}
+                        className="flex-1 max-w-none justify-between h-10"
+                      />
+                      {f.summaryModel && (
+                        <Button variant="ghost" size="sm" className="h-10" onClick={() => setF({ ...f, summaryModel: "" })}>
+                          Use writing model
+                        </Button>
+                      )}
+                    </div>
+                    {!f.summaryModel && <p className="text-xs italic text-muted-foreground mt-1.5">Currently the writing model.</p>}
+                  </LedgerRow>
+                </div>
+              </Section>
+            )}
 
-            <Section {...section("providers")} lede="Connect at least one. Test before you save — nothing is spent, we only ask who you are.">
-              <div className="space-y-4">
-                {PROVIDERS.map((p, i) => (
-                  <ProviderCard
-                    key={p.id}
-                    meta={p}
-                    test={tests[p.id]}
-                    onTest={() => runTest(p.id)}
-                    index={i}
-                    configured={p.id === "custom" ? !!f.custom.baseURL : !!f[p.id].apiKey}
-                  >
-                    {p.id === "custom" ? (
-                      <div className="grid grid-cols-[1fr_2fr] gap-x-4 gap-y-3">
-                        <CardField label="Label">
-                          <Ledger value={f.custom.name} onChange={(v) => setProvider("custom", { name: v })} placeholder="Local" />
-                        </CardField>
-                        <CardField label="Base URL">
-                          <Ledger mono value={f.custom.baseURL} onChange={(v) => setProvider("custom", { baseURL: v })} placeholder="http://localhost:11434/v1" />
-                        </CardField>
-                        <CardField label="API key" hint="optional" className="col-span-2">
-                          <SecretField value={f.custom.apiKey} onChange={(v) => setProvider("custom", { apiKey: v })} />
-                        </CardField>
-                      </div>
-                    ) : p.id === "openai" ? (
-                      <div className="grid grid-cols-[3fr_2fr] gap-x-4">
+            {active === "providers" && (
+              <Section title="Providers" lede="Connect at least one. Test before you save — nothing is spent, we only ask who you are.">
+                <div className="space-y-4">
+                  {PROVIDERS.map((p, i) => (
+                    <ProviderCard
+                      key={p.id}
+                      meta={p}
+                      test={tests[p.id]}
+                      onTest={() => runTest(p.id)}
+                      index={i}
+                      configured={p.id === "custom" ? !!f.custom.baseURL : !!f[p.id].apiKey}
+                    >
+                      {p.id === "custom" ? (
+                        <div className="grid grid-cols-[1fr_2fr] gap-x-4 gap-y-3">
+                          <CardField label="Label">
+                            <Ledger value={f.custom.name} onChange={(v) => setProvider("custom", { name: v })} placeholder="Local" />
+                          </CardField>
+                          <CardField label="Base URL">
+                            <Ledger mono value={f.custom.baseURL} onChange={(v) => setProvider("custom", { baseURL: v })} placeholder="http://localhost:11434/v1" />
+                          </CardField>
+                          <CardField label="API key" hint="optional" className="col-span-2">
+                            <SecretField value={f.custom.apiKey} onChange={(v) => setProvider("custom", { apiKey: v })} />
+                          </CardField>
+                        </div>
+                      ) : p.id === "openai" ? (
+                        <div className="grid grid-cols-[3fr_2fr] gap-x-4">
+                          <CardField label="API key">
+                            <SecretField value={f.openai.apiKey} onChange={(v) => setProvider("openai", { apiKey: v })} placeholder="sk-…" />
+                          </CardField>
+                          <CardField label="Base URL" hint="optional">
+                            <Ledger mono value={f.openai.baseURL} onChange={(v) => setProvider("openai", { baseURL: v })} placeholder="api.openai.com/v1" />
+                          </CardField>
+                        </div>
+                      ) : (
                         <CardField label="API key">
-                          <SecretField value={f.openai.apiKey} onChange={(v) => setProvider("openai", { apiKey: v })} placeholder="sk-…" />
+                          <SecretField
+                            value={f[p.id].apiKey}
+                            onChange={(v) => setProvider(p.id, { apiKey: v })}
+                            placeholder={p.id === "openrouter" ? "sk-or-v1-…" : "sk-ant-…"}
+                          />
                         </CardField>
-                        <CardField label="Base URL" hint="optional">
-                          <Ledger mono value={f.openai.baseURL} onChange={(v) => setProvider("openai", { baseURL: v })} placeholder="api.openai.com/v1" />
-                        </CardField>
-                      </div>
-                    ) : (
-                      <CardField label="API key">
-                        <SecretField
-                          value={f[p.id].apiKey}
-                          onChange={(v) => setProvider(p.id, { apiKey: v })}
-                          placeholder={p.id === "openrouter" ? "sk-or-v1-…" : "sk-ant-…"}
-                        />
-                      </CardField>
-                    )}
-                  </ProviderCard>
-                ))}
-              </div>
-            </Section>
+                      )}
+                    </ProviderCard>
+                  ))}
+                </div>
+              </Section>
+            )}
 
-            <Section {...section("generation")} lede="How much the agent reads before it writes, and how freely it writes.">
-              <div className="divide-y divide-rule border-y border-rule">
-                <LedgerRow title="OpenRouter thinking" note="Applies to writing and summaries when the model supports optional thinking.">
-                  <div role="group" aria-label="OpenRouter thinking" className="flex flex-wrap gap-1.5">
-                    {([
-                      { value: null, label: "Model default" },
-                      { value: true, label: "On" },
-                      { value: false, label: "Off" },
-                    ] as const).map(({ value, label }) => (
-                      <Button
-                        key={label}
-                        type="button"
-                        size="sm"
-                        variant={f.openRouterReasoning === value ? "default" : "outline"}
-                        aria-pressed={f.openRouterReasoning === value}
-                        onClick={() => setF({ ...f, openRouterReasoning: value })}
-                      >
-                        {label}
-                      </Button>
-                    ))}
-                  </div>
-                </LedgerRow>
-                <LedgerRow
-                  title="Context budget"
-                  note="The most the agent is shown per request. Larger reads more of your book — and costs more. Always clamped to the model’s window."
-                >
-                  <BudgetPicker value={f.contextBudget} onChange={(v) => setF({ ...f, contextBudget: v })} />
-                </LedgerRow>
-                <LedgerRow title="Temperature" note="Lower is careful and consistent; higher takes more risks with phrasing and plot.">
-                  <TemperatureDial value={f.temperature} onChange={(v) => setF({ ...f, temperature: v })} />
-                </LedgerRow>
-              </div>
-            </Section>
+            {active === "generation" && (
+              <Section title="Generation" lede="How much the agent reads before it writes, and how freely it writes.">
+                <div className="divide-y divide-rule border-y border-rule">
+                  <LedgerRow title="OpenRouter thinking" note="Applies to writing and summaries when the model supports optional thinking.">
+                    <div role="group" aria-label="OpenRouter thinking" className="flex flex-wrap gap-1.5">
+                      {([
+                        { value: null, label: "Model default" },
+                        { value: true, label: "On" },
+                        { value: false, label: "Off" },
+                      ] as const).map(({ value, label }) => (
+                        <Button
+                          key={label}
+                          type="button"
+                          size="sm"
+                          variant={f.openRouterReasoning === value ? "default" : "outline"}
+                          aria-pressed={f.openRouterReasoning === value}
+                          onClick={() => setF({ ...f, openRouterReasoning: value })}
+                        >
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
+                  </LedgerRow>
+                  <LedgerRow
+                    title="Context budget"
+                    note="The most the agent is shown per request. Larger reads more of your book — and costs more. Always clamped to the model’s window."
+                  >
+                    <BudgetPicker value={f.contextBudget} onChange={(v) => setF({ ...f, contextBudget: v })} />
+                  </LedgerRow>
+                  <LedgerRow title="Temperature" note="Lower is careful and consistent; higher takes more risks with phrasing and plot.">
+                    <TemperatureDial value={f.temperature} onChange={(v) => setF({ ...f, temperature: v })} />
+                  </LedgerRow>
+                </div>
+              </Section>
+            )}
 
-            <Section {...section("appearance")} lede="Saved instantly, on this device.">
-              <ThemeTiles />
-            </Section>
+            {active === "appearance" && (
+              <Section title="Appearance" lede="Saved instantly, on this device.">
+                <ThemeTiles />
+              </Section>
+            )}
           </div>
 
           <footer className="shrink-0 flex items-center gap-3 border-t bg-sidebar/60 px-4 py-3.5 md:px-[max(2.5rem,calc((100%_-_58rem)/2))]">
@@ -355,14 +335,11 @@ export function SettingsDialog({
 
 /* ================================================================= pieces */
 
-function Section({ id, numeral, title, lede, children }: { id: string; numeral: string; title: string; lede: string; children: React.ReactNode }) {
+function Section({ title, lede, children }: { title: string; lede: string; children: React.ReactNode }) {
   return (
-    <section id={id} className="scroll-mt-6">
+    <section aria-labelledby="settings-section-title">
       <header className="mb-6">
-        <div className="flex items-baseline gap-3">
-          <span className="font-display text-oxblood text-lg">{numeral}.</span>
-          <h2 className="font-display text-[28px] font-light tracking-tight leading-none">{title}</h2>
-        </div>
+        <h2 id="settings-section-title" className="font-display text-[28px] font-light tracking-tight leading-none">{title}</h2>
         <p className="mt-2 text-[15px] italic text-muted-foreground max-w-[52ch]">{lede}</p>
       </header>
       {children}
