@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SettingsDialog } from "../settings/SettingsDialog";
 import { ModelPicker } from "../settings/ModelPicker";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 
 export function Library() {
@@ -32,6 +33,7 @@ export function Library() {
         <span className="font-book italic text-muted-foreground text-lg mt-1.5">— a writing room with a co-author</span>
         <div className="flex-1" />
         <ModelPicker compact />
+        <ThemeToggle />
         <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)}>
           <Settings2 className="size-4" />
         </Button>

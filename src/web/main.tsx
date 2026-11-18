@@ -8,6 +8,18 @@ import { queryClient } from "./lib/trpc";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Library } from "./features/library/Library";
 import { Workspace } from "./features/workspace/Workspace";
+import { useTheme } from "./lib/theme";
+
+function ThemedToaster() {
+  const { resolved } = useTheme();
+  return (
+    <Toaster
+      theme={resolved}
+      position="bottom-left"
+      toastOptions={{ style: { background: "var(--popover)", color: "var(--ink)", border: "1px solid var(--rule)", fontFamily: "var(--font-sans)" } }}
+    />
+  );
+}
 
 function App() {
   return (
@@ -28,10 +40,7 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={400}>
         <App />
-        <Toaster
-          position="bottom-left"
-          toastOptions={{ style: { background: "var(--popover)", color: "var(--ink)", border: "1px solid var(--rule)", fontFamily: "var(--font-sans)" } }}
-        />
+        <ThemedToaster />
       </TooltipProvider>
     </QueryClientProvider>
   </StrictMode>,

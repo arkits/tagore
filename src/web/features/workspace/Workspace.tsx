@@ -13,6 +13,7 @@ import { ChangesPanel } from "../agent/ChangesPanel";
 import { NotesPanel } from "./NotesPanel";
 import { Sidebar } from "./Sidebar";
 import { ModelPicker } from "../settings/ModelPicker";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsDialog } from "../settings/SettingsDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
         <span className="font-display text-[17px] truncate">{project.data?.title}</span>
         <div className="flex-1" />
         <ModelPicker compact />
+        <ThemeToggle />
         <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Settings">
           <Settings2 className="size-4" />
         </Button>

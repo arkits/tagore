@@ -150,3 +150,68 @@ export async function getContextLength(ref: string): Promise<number | undefined>
   const { models } = await listModels().catch(() => ({ models: [] as ModelInfo[] }));
   return models.find((m) => m.id === ref)?.contextLength;
 }
+
+/* --------------------------------------------------------------- connection test */
+
+export type ProviderTestInput = { provider: ProviderId; apiKey?: string; baseURL?: string };
+export type ProviderTestResult = { ok: boolean; message: string; detail?: string; ms: number };
+
+/**
+ * Verify credentials with the cheapest authenticated call each provider offers (no tokens spent).
+ * Unsaved form values are tested as-is; a masked key ("••••") means "use the stored key".
+ */
+export async function testProvider(input: ProviderTestInput): Promise<ProviderTestResult> {
+  const s = getSettings();
+  const stored = s.providers[input.provider] as { apiKey?: string; baseURL?: string };
+  const key = input.apiKey && !input.apiKey.startsWith("••••") ? input.apiKey.trim() : (stored.apiKey ?? "");
+  const base = (input.baseURL ?? stored.baseURL ?? "").trim().replace(/\/$/, "");
+  const t0 = performance.now();
+  const done = (ok: boolean, message: string, detail?: string): ProviderTestResult => ({
+    ok,
+    message,
+    detail,
+    ms: Math.round(performance.now() - t0),
+  });
+
+  const call = async (url: string, headers: Record<string, string>) => {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(12_000) });
+    const body = (await res.json().catch(() => ({}))) as any;
+    if (!res.ok) {
+      const msg = body?.error?.message ?? body?.error ?? body?.message ?? res.statusText;
+      throw new Error(`${res.status} · ${typeof msg === "string" ? msg : JSON.stringify(msg)}`);
+    }
+    return body;
+  };
+
+  try {
+    switch (input.provider) {
+      case "openrouter": {
+        if (!key) return done(false, "No key entered");
+        const j = await call("https://openrouter.ai/api/v1/key", { Authorization: `Bearer ${key}` });
+        const d = j.data ?? {};
+        const left = d.limit_remaining ?? (d.limit != null ? d.limit - (d.usage ?? 0) : null);
+        return done(true, "Connected", left != null ? `$${Number(left).toFixed(2)} credit left` : `$${Number(d.usage ?? 0).toFixed(2)} used`);
+      }
+      case "anthropic": {
+        if (!key) return done(false, "No key entered");
+        const j = await call("https://api.anthropic.com/v1/models?limit=100", { "x-api-key": key, "anthropic-version": "2023-06-01" });
+        return done(true, "Connected", `${j.data?.length ?? 0} models`);
+      }
+      case "openai": {
+        if (!key) return done(false, "No key entered");
+        const j = await call(`${base || "https://api.openai.com/v1"}/models`, { Authorization: `Bearer ${key}` });
+        return done(true, "Connected", `${j.data?.length ?? 0} models`);
+      }
+      case "custom": {
+        if (!base) return done(false, "No base URL entered");
+        const j = await call(`${base}/models`, key ? { Authorization: `Bearer ${key}` } : {});
+        const n = (j.data ?? j.models ?? []).length;
+        return done(true, "Reachable", `${n} model${n === 1 ? "" : "s"} served`);
+      }
+    }
+  } catch (e: any) {
+    const m = String(e?.message ?? e);
+    const label = /timeout|abort/i.test(m) ? "Timed out" : /fetch failed|ECONNREFUSED|Unable to connect/i.test(m) ? "Can't reach server" : "Rejected";
+    return done(false, label, m);
+  }
+}

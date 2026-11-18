@@ -6,7 +6,7 @@ import { db, schema } from "./db";
 import { blocksWordCount, docToBlocks, EMPTY_DOC, hashString, type PMDoc } from "../shared/doc";
 import { emptyCard, normalizeCard, type CardData } from "../shared/character";
 import { getSettings, publicSettings, saveSettings } from "./settings";
-import { listModels } from "./ai/providers";
+import { listModels, testProvider } from "./ai/providers";
 import { summarizeChapter } from "./ai/summarize";
 import { buildContext } from "./ai/context";
 import { extractCardFromPng } from "./cards/png";
@@ -329,6 +329,9 @@ const settingsRouter = t.router({
       return publicSettings(saveSettings({ ...input, providers } as any));
     }),
   models: p.input(z.object({ refresh: z.boolean().optional() }).optional()).query(({ input }) => listModels(input?.refresh)),
+  testProvider: p
+    .input(z.object({ provider: z.enum(["openrouter", "openai", "anthropic", "custom"]), apiKey: z.string().optional(), baseURL: z.string().optional() }))
+    .mutation(({ input }) => testProvider(input)),
 });
 
 export const appRouter = t.router({
