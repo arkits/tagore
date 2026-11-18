@@ -140,25 +140,25 @@ export function SettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton
-        className="sm:max-w-[940px] p-0 gap-0 overflow-hidden h-[min(740px,90vh)] grid grid-cols-[232px_1fr] grid-rows-1 bg-paper"
+        className="inset-0 top-0 left-0 h-dvh w-full max-w-none translate-x-0 translate-y-0 rounded-none border-0 p-0 gap-0 overflow-hidden grid grid-cols-1 grid-rows-[auto_minmax(0,1fr)] bg-paper sm:max-w-none md:grid-cols-[232px_minmax(0,1fr)] md:grid-rows-1"
       >
         {/* ---------------------------------------------------------------- rail */}
-        <aside className="relative bg-sidebar border-r flex flex-col overflow-hidden">
-          <span aria-hidden className="pointer-events-none absolute -bottom-16 -left-6 font-display text-[260px] leading-none text-ink/[0.04] select-none">
+        <aside className="relative bg-sidebar border-b flex flex-col overflow-hidden md:border-b-0 md:border-r">
+          <span aria-hidden className="hidden md:block pointer-events-none absolute -bottom-16 -left-6 font-display text-[260px] leading-none text-ink/[0.04] select-none">
             §
           </span>
-          <div className="px-7 pt-8 pb-6">
+          <div className="px-4 pt-4 pb-2 md:px-7 md:pt-8 md:pb-6">
             <p className="small-caps text-[11px] text-muted-foreground">Tagore</p>
             <DialogTitle className="font-display text-[34px] leading-[1.05] font-light italic tracking-tight mt-1">Settings</DialogTitle>
             <DialogDescription className="sr-only">Providers, models, generation, appearance{story ? ", and story settings." : "."}</DialogDescription>
           </div>
-          <nav className="px-4 space-y-0.5">
+          <nav className="flex overflow-x-auto px-2 pb-2 md:block md:overflow-visible md:px-4 md:pb-0 md:space-y-0.5">
             {sections.map((s) => (
               <button
                 key={s.id}
                 onClick={() => jump(s.id)}
                 className={cn(
-                  "group relative w-full flex items-baseline gap-3 rounded-sm pl-4 pr-3 py-2 text-left transition-colors",
+                  "group relative shrink-0 flex items-baseline gap-3 rounded-sm px-3 py-2 text-left transition-colors md:w-full md:pl-4",
                   active === s.id ? "text-ink" : "text-muted-foreground hover:text-ink",
                 )}
               >
@@ -168,12 +168,12 @@ export function SettingsDialog({
                     active === s.id ? "opacity-100" : "opacity-0 scale-y-50",
                   )}
                 />
-                <span className={cn("font-display text-[13px] w-6 tabular-nums transition-colors", active === s.id && "text-oxblood")}>{s.numeral}.</span>
+                <span className={cn("hidden md:inline font-display text-[13px] w-6 tabular-nums transition-colors", active === s.id && "text-oxblood")}>{s.numeral}.</span>
                 <span className="text-[15px]">{s.title}</span>
               </button>
             ))}
           </nav>
-          <div className="mt-auto px-7 pb-7 relative">
+          <div className="hidden md:block mt-auto px-7 pb-7 relative">
             <div className="h-px w-8 bg-rule mb-4" />
             <p className="flex gap-2 text-[12.5px] leading-snug text-muted-foreground italic">
               <Lock className="size-3.5 shrink-0 mt-0.5 not-italic" />
@@ -184,7 +184,7 @@ export function SettingsDialog({
 
         {/* ------------------------------------------------------------- content */}
         <div className="flex flex-col min-h-0">
-          <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto thin-scroll px-10 pt-9 pb-10 space-y-14">
+          <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto thin-scroll px-4 pt-6 pb-10 space-y-14 md:pt-9 md:px-[max(2.5rem,calc((100%_-_58rem)/2))]">
             <Section id="providers" numeral="I" title="Providers" lede="Connect at least one. Test before you save — nothing is spent, we only ask who you are.">
               <div className="space-y-4">
                 {PROVIDERS.map((p, i) => (
@@ -312,7 +312,7 @@ export function SettingsDialog({
             )}
           </div>
 
-          <footer className="shrink-0 flex items-center gap-3 border-t bg-sidebar/60 px-10 py-3.5">
+          <footer className="shrink-0 flex items-center gap-3 border-t bg-sidebar/60 px-4 py-3.5 md:px-[max(2.5rem,calc((100%_-_58rem)/2))]">
             <span className={cn("flex items-center gap-2 text-sm transition-opacity", dirty ? "opacity-100" : "opacity-0")}>
               <span className="size-1.5 rounded-full bg-oxblood animate-pulse" />
               <span className="italic text-muted-foreground">Unsaved changes</span>
@@ -547,7 +547,7 @@ function SecretField({ value, onChange, placeholder }: { value: string; onChange
 
 function LedgerRow({ title, note, children }: { title: string; note: string; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[minmax(0,15rem)_1fr] gap-8 py-5">
+    <div className="grid gap-3 py-5 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:gap-8">
       <div>
         <h3 className="font-display text-[17px] leading-tight">{title}</h3>
         <p className="text-[13px] text-muted-foreground leading-snug mt-1">{note}</p>
