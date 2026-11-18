@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "tagore", "runtimeExecutable": "bun", "runtimeArgs": ["run", "dev"], "port": 5173 },
+    {
+      "name": "tagore-mock",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["TAGORE_MOCK=1", "TAGORE_DB=./data/mock.db", "bun", "run", "dev"],
+      "port": 5173
+    }
+  ]
+}

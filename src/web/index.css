@@ -1,0 +1,304 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/source-serif-4";
+@import "@fontsource-variable/source-serif-4/wght-italic.css";
+@import "@fontsource-variable/fraunces";
+@import "@fontsource/eb-garamond/400.css";
+@import "@fontsource/eb-garamond/400-italic.css";
+@import "@fontsource/eb-garamond/600.css";
+@import "@fontsource/courier-prime/400.css";
+@import "@fontsource/courier-prime/700.css";
+@import "@fontsource/courier-prime/400-italic.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ------------------------------------------------------------------ sepia */
+:root {
+  --desk: #e9dfcb;
+  --paper: #fbf5e8;
+  --ink: #2a2017;
+  --ink-soft: #5b4a39;
+  --rule: #ddcfb4;
+  --oxblood: #8a3b22;
+  --sage: #4d6a3c;
+
+  --radius: 0.4rem;
+  --background: var(--desk);
+  --foreground: var(--ink);
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --popover: #fcf7ec;
+  --popover-foreground: var(--ink);
+  --primary: #6e3a1f;
+  --primary-foreground: #fbf5e8;
+  --secondary: #e4d7bd;
+  --secondary-foreground: var(--ink);
+  --muted: #e6dac2;
+  --muted-foreground: #7a6852;
+  --accent: #e2d3b5;
+  --accent-foreground: var(--ink);
+  --destructive: #a5361f;
+  --border: var(--rule);
+  --input: #d4c3a3;
+  --ring: #a87b52;
+  --sidebar: #e3d7bf;
+}
+
+@theme inline {
+  --font-sans: "Source Serif 4 Variable", Georgia, serif;
+  --font-serif: "Source Serif 4 Variable", Georgia, serif;
+  --font-display: "Fraunces Variable", Georgia, serif;
+  --font-book: "EB Garamond", Garamond, Georgia, serif;
+  --font-script: "Courier Prime", "Courier New", monospace;
+
+  --color-desk: var(--desk);
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-rule: var(--rule);
+  --color-oxblood: var(--oxblood);
+  --color-sage: var(--sage);
+  --color-sidebar: var(--sidebar);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "kern", "liga", "onum";
+    background-image:
+      radial-gradient(ellipse at top left, rgba(255, 250, 235, 0.6), transparent 60%),
+      radial-gradient(ellipse at bottom right, rgba(160, 120, 70, 0.08), transparent 60%);
+  }
+  ::selection {
+    background: rgba(168, 123, 82, 0.28);
+  }
+}
+
+.small-caps {
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
+}
+
+/* ------------------------------------------------------------------ paper */
+.paper {
+  background: var(--paper);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 1px 2px rgba(60, 40, 20, 0.08),
+    0 12px 40px -12px rgba(60, 40, 20, 0.25);
+  background-image: radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.55), transparent 70%);
+}
+
+/* ------------------------------------------------------------ manuscript */
+.manuscript .ProseMirror {
+  outline: none;
+  min-height: 60vh;
+  color: var(--ink);
+  caret-color: var(--oxblood);
+}
+
+/* prose: book typesetting */
+.manuscript.prose-format .ProseMirror {
+  font-family: var(--font-book);
+  font-size: 1.28rem;
+  line-height: 1.72;
+  hyphens: auto;
+  text-align: justify;
+  text-wrap: pretty;
+}
+.manuscript.prose-format .ProseMirror p {
+  margin: 0;
+  text-indent: 1.6em;
+}
+.manuscript.prose-format .ProseMirror > p:first-child,
+.manuscript.prose-format .ProseMirror h1 + p,
+.manuscript.prose-format .ProseMirror h2 + p,
+.manuscript.prose-format .ProseMirror h3 + p,
+.manuscript.prose-format .ProseMirror hr + p,
+.manuscript.prose-format .ProseMirror .sg-block + p {
+  text-indent: 0;
+}
+.manuscript.prose-format .ProseMirror > p:first-child::first-letter {
+  font-family: var(--font-display);
+  float: left;
+  font-size: 3.4em;
+  line-height: 0.85;
+  padding: 0.08em 0.08em 0 0;
+  color: var(--oxblood);
+}
+.manuscript .ProseMirror h1,
+.manuscript .ProseMirror h2,
+.manuscript .ProseMirror h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  text-align: center;
+  text-indent: 0;
+  margin: 1.6em 0 0.9em;
+  letter-spacing: 0.01em;
+}
+.manuscript .ProseMirror h1 { font-size: 1.9em; }
+.manuscript .ProseMirror h2 { font-size: 1.45em; }
+.manuscript .ProseMirror h3 { font-size: 1.15em; font-variant: small-caps; letter-spacing: 0.08em; }
+.manuscript .ProseMirror hr {
+  border: none;
+  margin: 1.4em 0;
+  text-align: center;
+  height: 1.6em;
+}
+.manuscript .ProseMirror hr::after {
+  content: "⁂";
+  color: var(--ink-soft);
+  font-size: 1.1em;
+}
+.manuscript .ProseMirror hr.ProseMirror-selectednode::after {
+  color: var(--oxblood);
+}
+.manuscript .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: #b2a084;
+  font-style: italic;
+  text-indent: 0;
+}
+
+/* script: screenplay layout */
+.manuscript.script-format .ProseMirror {
+  font-family: var(--font-script);
+  font-size: 1.02rem;
+  line-height: 1.45;
+}
+.manuscript.script-format .ProseMirror p { margin: 0 0 1em; }
+.manuscript.script-format .ProseMirror p[data-kind="scene"] { text-transform: uppercase; font-weight: 700; margin-top: 1.6em; }
+.manuscript.script-format .ProseMirror p[data-kind="action"] { }
+.manuscript.script-format .ProseMirror p[data-kind="character"] { text-transform: uppercase; margin: 1em 0 0 37%; }
+.manuscript.script-format .ProseMirror p[data-kind="parenthetical"] { margin: 0 25% 0 28%; }
+.manuscript.script-format .ProseMirror p[data-kind="dialogue"] { margin: 0 18% 1em 17%; }
+.manuscript.script-format .ProseMirror p[data-kind="character"] + p[data-kind="dialogue"],
+.manuscript.script-format .ProseMirror p[data-kind="parenthetical"] + p[data-kind="dialogue"] { margin-top: 0; }
+.manuscript.script-format .ProseMirror p[data-kind="transition"] { text-transform: uppercase; text-align: right; }
+
+/* ----------------------------------------------------- tracked suggestions */
+.sg-del {
+  text-decoration: line-through;
+  text-decoration-color: var(--oxblood);
+  text-decoration-thickness: 1.5px;
+  color: #8f6e5e;
+  background: rgba(138, 59, 34, 0.08);
+  border-radius: 2px;
+}
+.sg-ins {
+  color: var(--sage);
+  background: rgba(77, 106, 60, 0.11);
+  border-bottom: 1.5px solid rgba(77, 106, 60, 0.55);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.sg-del-block {
+  text-decoration: line-through;
+  text-decoration-color: rgba(138, 59, 34, 0.7);
+  color: #9b8170;
+  background: rgba(138, 59, 34, 0.05);
+}
+.sg-block {
+  position: relative;
+  margin: 0.5em -1.25rem;
+  padding: 0.6em 1.25rem 0.6em calc(1.25rem - 3px);
+  border-left: 3px solid var(--sage);
+  background: rgba(77, 106, 60, 0.07);
+  color: #33452a;
+  border-radius: 0 4px 4px 0;
+  text-indent: 0;
+}
+.sg-block p {
+  margin: 0;
+  text-indent: 1.6em;
+}
+.sg-block p:first-of-type { text-indent: 0; }
+.sg-block .sg-hr { text-align: center; }
+.sg-block[data-active="true"], .sg-inline-wrap[data-active="true"] .sg-ins {
+  outline: 2px solid rgba(77, 106, 60, 0.35);
+}
+.sg-actions {
+  display: inline-flex;
+  gap: 2px;
+  vertical-align: middle;
+  margin-left: 4px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  text-indent: 0;
+  user-select: none;
+}
+.sg-block > .sg-actions {
+  position: absolute;
+  top: -11px;
+  right: 8px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 1px 3px;
+  box-shadow: 0 1px 3px rgba(60, 40, 20, 0.12);
+}
+.sg-actions button {
+  cursor: pointer;
+  border-radius: 999px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: transparent;
+  border: none;
+}
+.sg-actions button[data-sg-action="accept"]:hover { background: rgba(77, 106, 60, 0.18); color: var(--sage); }
+.sg-actions button[data-sg-action="reject"]:hover { background: rgba(138, 59, 34, 0.15); color: var(--oxblood); }
+.sg-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--sage);
+  padding: 0 4px;
+  align-self: center;
+  white-space: nowrap;
+}
+
+/* streaming caret */
+@keyframes blink { 50% { opacity: 0; } }
+.caret::after { content: "▍"; animation: blink 1s steps(1) infinite; color: var(--oxblood); }
+
+/* scrollbars */
+.thin-scroll::-webkit-scrollbar { width: 8px; }
+.thin-scroll::-webkit-scrollbar-thumb { background: rgba(120, 90, 60, 0.25); border-radius: 8px; }
