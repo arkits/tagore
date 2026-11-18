@@ -1,4 +1,4 @@
-import { test, expect, beforeAll } from "bun:test";
+import { test, expect, beforeAll, spyOn } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -147,4 +147,49 @@ test("png cards round-trip", () => {
   const card = { spec: "chara_card_v2", spec_version: "2.0", data: { name: "Ünïcode Ann", description: "hi" } };
   const out = embedCardInPng(new Uint8Array(png), card);
   expect(extractCardFromPng(out)).toEqual(card);
+});
+
+test("OpenRouter thinking follows the saved setting on the wire for supported models", async () => {
+  const { appRouter } = await import("../src/server/router");
+  const { summarizeChapter } = await import("../src/server/ai/summarize");
+  const caller = appRouter.createCaller({});
+  const requests: { model: string; reasoning?: { enabled: boolean } }[] = [];
+  const fetchMock = spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+    if (url === "https://openrouter.ai/api/v1/models") {
+      return Response.json({
+        data: [
+          { id: "test/optional", reasoning: { mandatory: false } },
+          { id: "test/mandatory", reasoning: { mandatory: true } },
+        ],
+      });
+    }
+    if (url !== "https://openrouter.ai/api/v1/chat/completions") throw new Error("Unexpected test request");
+    requests.push(JSON.parse(String(init?.body)));
+    const chunk = { choices: [{ delta: { content: "The lighthouse is dark." }, finish_reason: "stop" }] };
+    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { "Content-Type": "text/event-stream" } });
+  });
+  try {
+    expect((await caller.settings.get()).openRouterReasoning).toBeNull();
+    const model = "openrouter:test/optional";
+    await caller.settings.update({ summaryModel: model, openRouterReasoning: true, providers: { openrouter: { apiKey: "test-key" } } });
+    const run = (ref: string) => runAgent({ chapterId: "c1", mode: "custom", instruction: "Check continuity", model: ref }, () => {}, new AbortController().signal);
+    await run(model);
+    expect(await summarizeChapter("c2")).toBe("The lighthouse is dark.");
+    await caller.settings.update({ openRouterReasoning: false });
+    await run(model);
+    await run("openrouter:test/mandatory");
+    await caller.settings.update({ openRouterReasoning: null });
+    await run(model);
+    expect(requests).toEqual([
+      expect.objectContaining({ model: "test/optional", reasoning: { enabled: true } }),
+      expect.objectContaining({ model: "test/optional", reasoning: { enabled: true } }),
+      expect.objectContaining({ model: "test/optional", reasoning: { enabled: false } }),
+      expect.not.objectContaining({ reasoning: expect.anything() }),
+      expect.not.objectContaining({ reasoning: expect.anything() }),
+    ]);
+  } finally {
+    fetchMock.mockRestore();
+    saveSettings({ summaryModel: "", openRouterReasoning: null });
+  }
 });

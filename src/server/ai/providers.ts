@@ -14,6 +14,7 @@ export type ModelInfo = {
   modelId: string;
   name: string;
   contextLength?: number;
+  reasoning?: { mandatory?: boolean };
   /** USD per million tokens */
   pricing?: { prompt: number; completion: number };
 };
@@ -88,6 +89,7 @@ export async function listModels(force = false): Promise<{ models: ModelInfo[]; 
           modelId: m.id,
           name: m.name ?? m.id,
           contextLength: m.context_length,
+          reasoning: m.reasoning ? { mandatory: m.reasoning.mandatory === true } : undefined,
           pricing: m.pricing?.prompt != null && m.pricing?.completion != null
             ? { prompt: Number(m.pricing.prompt) * 1e6, completion: Number(m.pricing.completion) * 1e6 }
             : undefined,
@@ -150,6 +152,12 @@ export async function getModelInfo(ref: string): Promise<ModelInfo | undefined> 
   const { models } = await listModels().catch(() => ({ models: [] as ModelInfo[] }));
   const { provider, modelId } = parseModelRef(ref);
   return models.find((m) => m.id === `${provider}:${modelId}`);
+}
+
+/** OpenRouter's catalog omits reasoning for models without a fixed reasoning configuration. */
+export function openRouterReasoningOptions(model: ModelInfo | undefined, enabled: AppSettings["openRouterReasoning"]) {
+  if (enabled === null || model?.provider !== "openrouter" || !model.reasoning || model.reasoning.mandatory) return undefined;
+  return { openrouter: { reasoning: { enabled } } };
 }
 
 /* --------------------------------------------------------------- connection test */

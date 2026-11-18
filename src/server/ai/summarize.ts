@@ -2,7 +2,7 @@ import { streamText } from "ai";
 import { eq } from "drizzle-orm";
 import { db, schema } from "../db";
 import { blockPlain, docToBlocks } from "../../shared/doc";
-import { getModel } from "./providers";
+import { getModel, getModelInfo, openRouterReasoningOptions, parseModelRef } from "./providers";
 import { getSettings } from "../settings";
 
 const MAX_CHARS = 120_000; // ~30k tokens of chapter text per summary call
@@ -21,8 +21,14 @@ export async function summarizeChapter(chapterId: string, signal?: AbortSignal, 
     // Keep beginning and end; the middle is where detail is least load-bearing for continuity.
     text = text.slice(0, MAX_CHARS * 0.4) + "\n[…]\n" + text.slice(-MAX_CHARS * 0.6);
   }
+  const modelRef = s.summaryModel || s.model;
+  const model = getModel(modelRef, s);
+  const modelInfo = s.openRouterReasoning !== null && parseModelRef(modelRef).provider === "openrouter"
+    ? await getModelInfo(modelRef)
+    : undefined;
   const result = streamText({
-    model: getModel(s.summaryModel || s.model, s),
+    model,
+    providerOptions: openRouterReasoningOptions(modelInfo, s.openRouterReasoning),
     temperature: 0.2,
     abortSignal: signal,
     instructions:

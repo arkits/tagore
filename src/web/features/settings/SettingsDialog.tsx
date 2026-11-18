@@ -26,6 +26,7 @@ type Form = {
   summaryModel: string;
   contextBudget: number;
   temperature: number;
+  openRouterReasoning: boolean | null;
 };
 
 type TestState = { status: "idle" | "testing" | "ok" | "fail"; message?: string; detail?: string; ms?: number };
@@ -75,6 +76,7 @@ export function SettingsDialog({
       summaryModel: s.summaryModel,
       contextBudget: s.contextBudget,
       temperature: s.temperature,
+      openRouterReasoning: s.openRouterReasoning,
     };
     setF(form);
     setInitial(JSON.stringify(form));
@@ -254,6 +256,26 @@ export function SettingsDialog({
 
             <Section id="generation" numeral="III" title="Generation" lede="How much the agent reads before it writes, and how freely it writes.">
               <div className="divide-y divide-rule border-y border-rule">
+                <LedgerRow title="OpenRouter thinking" note="Applies to writing and summaries when the model supports optional thinking.">
+                  <div role="group" aria-label="OpenRouter thinking" className="flex flex-wrap gap-1.5">
+                    {([
+                      { value: null, label: "Model default" },
+                      { value: true, label: "On" },
+                      { value: false, label: "Off" },
+                    ] as const).map(({ value, label }) => (
+                      <Button
+                        key={label}
+                        type="button"
+                        size="sm"
+                        variant={f.openRouterReasoning === value ? "default" : "outline"}
+                        aria-pressed={f.openRouterReasoning === value}
+                        onClick={() => setF({ ...f, openRouterReasoning: value })}
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+                </LedgerRow>
                 <LedgerRow
                   title="Context budget"
                   note="The most the agent is shown per request. Larger reads more of your book — and costs more. Always clamped to the model’s window."
@@ -308,6 +330,7 @@ export function SettingsDialog({
                   summaryModel: f.summaryModel,
                   contextBudget: f.contextBudget,
                   temperature: f.temperature,
+                  openRouterReasoning: f.openRouterReasoning,
                   providers: { openrouter: f.openrouter, openai: f.openai, anthropic: f.anthropic, custom: f.custom },
                 })
               }

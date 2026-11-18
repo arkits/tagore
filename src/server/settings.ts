@@ -18,6 +18,8 @@ export type AppSettings = {
   /** Max tokens of context assembled for the agent (not counting its output). */
   contextBudget: number;
   temperature: number;
+  /** null leaves reasoning at the model’s default. */
+  openRouterReasoning: boolean | null;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -31,6 +33,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   summaryModel: "",
   contextBudget: 48000,
   temperature: 0.8,
+  openRouterReasoning: null,
 };
 
 const KEY = "app";

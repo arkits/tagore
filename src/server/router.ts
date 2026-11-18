@@ -361,6 +361,7 @@ const settingsRouter = t.router({
         summaryModel: z.string().optional(),
         contextBudget: z.number().int().min(4000).max(1_000_000).optional(),
         temperature: z.number().min(0).max(2).optional(),
+        openRouterReasoning: z.boolean().nullable().optional(),
         providers: z
           .object({
             openrouter: z.object({ apiKey: z.string() }).partial(),

@@ -13,7 +13,7 @@ import { nanoid } from "nanoid";
 import { db, schema } from "../db";
 import { blockPlain, blockToLine, docToBlocks, plainText, textToBlocks, type NewBlock, type SuggestionOp } from "../../shared/doc";
 import { buildContext, otherChapters, type AgentMode } from "./context";
-import { getModelInfo, getModel } from "./providers";
+import { getModelInfo, getModel, openRouterReasoningOptions } from "./providers";
 import { summarizeChapter } from "./summarize";
 import { getSettings } from "../settings";
 
@@ -312,6 +312,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
     tools,
     stopWhen: isStepCount(40),
     temperature: settings.temperature,
+    providerOptions: openRouterReasoningOptions(modelInfo, settings.openRouterReasoning),
     abortSignal: signal,
   });
 
