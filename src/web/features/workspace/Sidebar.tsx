@@ -44,7 +44,7 @@ export function Sidebar({ projectId, chapterId }: { projectId: string; chapterId
   const total = chapters.data?.reduce((n, c) => n + c.wordCount, 0) ?? 0;
 
   return (
-    <nav className="w-64 shrink-0 border-r bg-sidebar/50 flex flex-col min-h-0">
+    <nav className="w-64 shrink-0 border-r bg-sidebar/50 flex flex-col min-h-0 h-full">
       <div className="flex-1 overflow-y-auto thin-scroll py-3">
         <SectionHead label="Manuscript" action={() => create.mutate({ projectId })} />
         <ol className="px-2 space-y-px">

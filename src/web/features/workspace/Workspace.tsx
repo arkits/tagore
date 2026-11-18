@@ -3,7 +3,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import type { Editor } from "@tiptap/react";
 import { toast } from "sonner";
-import { CheckCheck, Settings2, X } from "lucide-react";
+import { CheckCheck, PanelLeftClose, PanelLeftOpen, Settings2, X } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { queryClient, trpc, type Suggestion } from "@/lib/trpc";
 import { runAgent, type AgentEvent } from "@/lib/agent";
 import { Manuscript, type SuggestionHandlers } from "../editor/Manuscript";
@@ -33,10 +34,51 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
   }, [chapterId, chapters.data, projectId, navigate]);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try {
+      return localStorage.getItem("tagore.sidebar") !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((o) => {
+      try {
+        localStorage.setItem("tagore.sidebar", o ? "closed" : "open");
+      } catch {}
+      return !o;
+    });
+  }, []);
+  // ⌘\ / Ctrl+\ toggles the sidebar (works while typing in the manuscript too).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "\\" || e.code === "Backslash")) {
+        e.preventDefault();
+        toggleSidebar();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleSidebar]);
 
   return (
     <div className="h-full flex flex-col">
       <header className="h-12 shrink-0 flex items-center gap-3 px-4 border-b bg-sidebar/60 backdrop-blur">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={toggleSidebar}
+              aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              aria-expanded={sidebarOpen}
+              className="-ml-1.5 size-8 rounded-md grid place-items-center text-ink-soft hover:bg-accent hover:text-ink transition-colors"
+            >
+              {sidebarOpen ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {sidebarOpen ? "Hide sidebar" : "Show sidebar"} <kbd className="ml-1 opacity-70">⌘\</kbd>
+          </TooltipContent>
+        </Tooltip>
         <Link href="/" className="font-display text-xl tracking-tight text-oxblood hover:opacity-80">
           Tagore
         </Link>
@@ -50,7 +92,15 @@ export function Workspace({ projectId, chapterId }: { projectId: string; chapter
         </Button>
       </header>
       <div className="flex-1 flex min-h-0">
-        <Sidebar projectId={projectId} chapterId={chapterId} />
+        <div
+          inert={!sidebarOpen}
+          className={cn(
+            "shrink-0 overflow-hidden flex transition-[width,opacity] duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)]",
+            sidebarOpen ? "w-64 opacity-100" : "w-0 opacity-0",
+          )}
+        >
+          <Sidebar projectId={projectId} chapterId={chapterId} />
+        </div>
         {chapterId && project.data ? (
           <ChapterSession key={chapterId} projectId={projectId} chapterId={chapterId} format={project.data.format} />
         ) : (
