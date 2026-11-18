@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import type { Editor } from "@tiptap/react";
 import { toast } from "sonner";
-import { CheckCheck, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, RotateCcw, ScrollText, Settings2, X } from "lucide-react";
+import { CheckCheck, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, RotateCcw, ScrollText, Settings2, X } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { queryClient, trpc, type Suggestion } from "@/lib/trpc";
 import { runAgent, type AgentEvent } from "@/lib/agent";
@@ -40,9 +40,24 @@ export function Workspace({ projectId, chapterId, characters = false }: { projec
   const project = useQuery(trpc.projects.get.queryOptions(projectId));
   const chapters = useQuery(trpc.chapters.list.queryOptions(projectId));
 
+  const activeChapterId = chapters.data?.find((chapter) => chapter.id === chapterId)?.id;
+  const firstChapterId = chapters.data?.[0]?.id;
+  const projectHref = `/p/${projectId}`;
+  const createChapter = useMutation(trpc.chapters.create.mutationOptions({
+    onSuccess: async ({ id }) => {
+      await queryClient.invalidateQueries({ queryKey: trpc.chapters.list.queryKey(projectId) });
+      navigate(`${projectHref}/${id}`);
+    },
+    onError: (error) => toast.error(error.message),
+  }));
+  const addChapter = () => createChapter.mutate({ projectId });
+
   useEffect(() => {
-    if (!characters && !chapterId && chapters.data?.length) navigate(`/p/${projectId}/${chapters.data[0]!.id}`, { replace: true });
-  }, [characters, chapterId, chapters.data, projectId, navigate]);
+    if (characters || chapters.isFetching || !chapters.isSuccess || activeChapterId) return;
+    if (firstChapterId || chapterId) {
+      navigate(firstChapterId ? `${projectHref}/${firstChapterId}` : projectHref, { replace: true });
+    }
+  }, [characters, chapters.isFetching, chapters.isSuccess, activeChapterId, firstChapterId, chapterId, projectHref, navigate]);
 
   const from = characters ? new URLSearchParams(search).get("from") : null;
   const returnChapter = chapters.data?.find((chapter) => chapter.id === from);
@@ -52,7 +67,7 @@ export function Workspace({ projectId, chapterId, characters = false }: { projec
   const format: StoryFormat = project.data?.format === "chat" ? "chat" : "prose";
   const theme = getTheme(project.data?.theme, format);
   const narrow = useSyncExternalStore(subscribeToWorkspaceWidth, isNarrowWorkspace);
-  const chatOnly = narrow && !characters && format === "chat" && theme.id === "imessage";
+  const chatOnly = narrow && !!activeChapterId && !characters && format === "chat" && theme.id === "imessage";
   const workspaceRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -178,7 +193,7 @@ export function Workspace({ projectId, chapterId, characters = false }: { projec
         <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Settings">
           <Settings2 className="size-4" />
         </Button>
-        {chapterId && project.data && (
+        {activeChapterId && project.data && (
           <Button
             variant="ghost"
             size="icon"
@@ -200,15 +215,21 @@ export function Workspace({ projectId, chapterId, characters = false }: { projec
             sidebarOpen ? "w-64 opacity-100" : "w-0 opacity-0",
           )}
         >
-          <Sidebar projectId={projectId} chapterId={chapterId ?? returnChapter?.id} characters={characters} />
+          <Sidebar
+            projectId={projectId}
+            chapterId={activeChapterId ?? returnChapter?.id}
+            characters={characters}
+            onAddChapter={addChapter}
+            addingChapter={createChapter.isPending}
+          />
         </div>}
         {characters ? (
           <CharactersPage key={projectId} projectId={projectId} manuscriptHref={manuscriptHref} />
-        ) : chapterId && project.data ? (
+        ) : activeChapterId && project.data ? (
           <ChapterSession
-            key={chapterId}
+            key={activeChapterId}
             projectId={projectId}
-            chapterId={chapterId}
+            chapterId={activeChapterId}
             format={format}
             theme={theme.id}
             pov={pov}
@@ -218,6 +239,15 @@ export function Workspace({ projectId, chapterId, characters = false }: { projec
             onShowAgent={showAgent}
             prepareExport={prepareExport}
           />
+        ) : project.data && chapters.data?.length === 0 ? (
+          <main className="grid min-w-0 flex-1 place-items-center p-6">
+            <div className="space-y-4 text-center">
+              <h1 className="font-display text-2xl text-ink">No chapters yet</h1>
+              <Button onClick={addChapter} disabled={createChapter.isPending}>
+                <Plus /> Add chapter
+              </Button>
+            </div>
+          </main>
         ) : (
           <div className="flex-1" />
         )}

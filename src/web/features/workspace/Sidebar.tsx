@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { ArrowDown, ArrowUp, BookMarked, Globe2, MoreHorizontal, Plus, ScrollText, Trash2, Users } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { queryClient, trpc } from "@/lib/trpc";
@@ -10,8 +10,13 @@ import { StoryBibleDialog } from "../project/StoryBibleDialog";
 import { Avatar } from "../characters/CharactersPage";
 import { LoreDialog } from "../lore/LoreDialog";
 
-export function Sidebar({ projectId, chapterId, characters }: { projectId: string; chapterId?: string; characters: boolean }) {
-  const [, navigate] = useLocation();
+export function Sidebar({ projectId, chapterId, characters, onAddChapter, addingChapter }: {
+  projectId: string;
+  chapterId?: string;
+  characters: boolean;
+  onAddChapter: () => void;
+  addingChapter: boolean;
+}) {
   const chapters = useQuery(trpc.chapters.list.queryOptions(projectId));
   const cast = useQuery(trpc.characters.forProject.queryOptions(projectId));
   const lore = useQuery(trpc.lore.list.queryOptions(projectId));
@@ -26,17 +31,14 @@ export function Sidebar({ projectId, chapterId, characters }: { projectId: strin
   const [loreOpen, setLoreOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; trigger: HTMLElement | null } | null>(null);
 
-  const inval = () => queryClient.invalidateQueries({ queryKey: trpc.chapters.list.queryKey(projectId) });
-  const create = useMutation(trpc.chapters.create.mutationOptions({ onSuccess: (r) => (inval(), navigate(`/p/${projectId}/${r.id}`)) }));
+  const chapterListKey = trpc.chapters.list.queryKey(projectId);
+  const inval = () => queryClient.invalidateQueries({ queryKey: chapterListKey });
   const reorder = useMutation(trpc.chapters.reorder.mutationOptions({ onSuccess: inval }));
   const del = useMutation(
     trpc.chapters.delete.mutationOptions({
       onSuccess: (_r, id) => {
-        inval();
-        if (id === chapterId) {
-          const next = chapters.data?.find((c) => c.id !== id);
-          navigate(next ? `/p/${projectId}/${next.id}` : `/p/${projectId}`);
-        }
+        queryClient.setQueryData(chapterListKey, (list) => list?.filter((chapter) => chapter.id !== id));
+        return inval();
       },
     }),
   );
@@ -54,7 +56,7 @@ export function Sidebar({ projectId, chapterId, characters }: { projectId: strin
   return (
     <nav className="w-64 shrink-0 border-r bg-sidebar/50 flex flex-col min-h-0 h-full">
       <div className="flex-1 overflow-y-auto thin-scroll py-3">
-        <SectionHead label="Manuscript" action={() => create.mutate({ projectId })} />
+        <SectionHead label="Manuscript" action={onAddChapter} disabled={addingChapter} />
         <ol className="px-2 space-y-px">
           {chapters.data?.map((c, i) => (
             <li key={c.id} className="group relative">
@@ -140,12 +142,12 @@ export function Sidebar({ projectId, chapterId, characters }: { projectId: strin
   );
 }
 
-function SectionHead({ label, action, actionIcon: Icon = Plus }: { label: string; action?: () => void; actionIcon?: React.ElementType }) {
+function SectionHead({ label, action, disabled, actionIcon: Icon = Plus }: { label: string; action?: () => void; disabled?: boolean; actionIcon?: React.ElementType }) {
   return (
     <div className="flex items-center justify-between px-5 pt-4 pb-1.5 first:pt-1">
       <span className="small-caps text-[12px] text-muted-foreground">{label}</span>
       {action && (
-        <button onClick={action} className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-ink" title={`Add ${label.toLowerCase()}`}>
+        <button onClick={action} disabled={disabled} className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-ink" title={`Add ${label.toLowerCase()}`}>
           <Icon className="size-3.5" />
         </button>
       )}
