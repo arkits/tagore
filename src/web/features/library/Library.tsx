@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Plus, Settings2, Trash2 } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { queryClient, trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,7 @@ export function Library() {
   const settings = useQuery(trpc.settings.get.queryOptions());
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const del = useMutation(trpc.projects.delete.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: trpc.projects.list.queryKey() }) }));
   const noKey =
     settings.data &&
@@ -87,9 +89,11 @@ export function Library() {
                   </span>
                 </button>
                 <button
-                  className="absolute top-2 right-2 p-1.5 rounded opacity-0 group-hover:opacity-70 hover:!opacity-100"
+                  className="absolute top-2 right-2 p-1.5 rounded opacity-0 group-hover:opacity-70 focus-visible:opacity-100 hover:!opacity-100"
                   style={{ color: t.cover.fg }}
-                  onClick={() => confirm(`Delete “${p.title}” and all its chapters?`) && del.mutate(p.id)}
+                  aria-label={`Delete story “${p.title}”`}
+                  disabled={del.isPending}
+                  onClick={() => setDeleteTarget({ id: p.id, name: p.title })}
                 >
                   <Trash2 className="size-4" />
                 </button>
@@ -98,6 +102,14 @@ export function Library() {
           })}
         </div>
       </main>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        title="Delete story?"
+        description={`“${deleteTarget?.name}” and all its chapters will be permanently deleted.`}
+        action="Delete story"
+        onConfirm={() => { if (deleteTarget) del.mutate(deleteTarget.id); }}
+      />
       <NewStoryDialog open={creating} onOpenChange={setCreating} onCreated={(id, ch) => navigate(`/p/${id}/${ch}`)} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>

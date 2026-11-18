@@ -4,6 +4,7 @@ import { BookOpen, Feather, Loader2, PenLine, Send, Sparkles, Square, Trash2, X 
 import { toast } from "sonner";
 import { queryClient, trpc } from "@/lib/trpc";
 import { CONTEXT_MESSAGES } from "@shared/doc";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -57,6 +58,7 @@ export function AgentPanel({
   onStop: () => void;
 }) {
   const [text, setText] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
   const log = useQuery(trpc.agent.log.queryOptions(chapterId));
   const history = (log.data ?? []).filter((m) => !(live?.runId && m.runId === live.runId));
   // Mirrors the context builder: only the most recent messages are replayed to the model.
@@ -114,8 +116,8 @@ export function AgentPanel({
           <div className="flex items-center justify-between text-[11px] text-muted-foreground -mt-1">
             <span className="small-caps tracking-wide">History</span>
             <button
-              onClick={() => confirm("Clear this chapter’s agent history? The agent will no longer see these messages.") && clearLog.mutate(chapterId)}
-              disabled={running}
+              onClick={() => setConfirmClear(true)}
+              disabled={running || clearLog.isPending}
               className="inline-flex items-center gap-1 hover:text-destructive disabled:opacity-40"
             >
               <Trash2 className="size-3" /> Clear
@@ -235,6 +237,14 @@ export function AgentPanel({
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmClear}
+        onOpenChange={setConfirmClear}
+        title="Clear agent history?"
+        description="This deletes the agent history for this chapter. The agent will no longer see those messages."
+        action="Clear history"
+        onConfirm={() => clearLog.mutate(chapterId)}
+      />
     </div>
   );
 }

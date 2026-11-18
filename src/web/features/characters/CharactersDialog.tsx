@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Download, Pin, PinOff, Plus, Trash2, Upload, UserMinus, UserPlus } from "lucide-react";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { queryClient, trpc, type Character } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,7 @@ export function CharactersDialog({
   const all = useQuery(trpc.characters.list.queryOptions());
   const cast = useQuery(trpc.characters.forProject.queryOptions(projectId));
   const [sel, setSel] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -165,7 +167,9 @@ export function CharactersDialog({
                     size="icon"
                     variant="ghost"
                     title="Delete character everywhere"
-                    onClick={() => confirm(`Delete ${selected.name} from all stories?`) && del.mutate(selected.id)}
+                    aria-label="Delete character everywhere"
+                    disabled={del.isPending}
+                    onClick={() => setDeleteTarget({ id: selected.id, name: selected.name })}
                   >
                     <Trash2 className="size-4" />
                   </Button>
@@ -177,6 +181,14 @@ export function CharactersDialog({
             )}
           </div>
         </div>
+        <ConfirmDialog
+          open={open && deleteTarget !== null}
+          onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+          title="Delete character?"
+          description={`“${deleteTarget?.name}” will be permanently deleted from the library and removed from all stories.`}
+          action="Delete character"
+          onConfirm={() => { if (deleteTarget) del.mutate(deleteTarget.id); }}
+        />
       </DialogContent>
     </Dialog>
   );

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { ArrowDown, ArrowUp, BookMarked, Globe2, MoreHorizontal, Plus, ScrollText, Trash2, Users } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { queryClient, trpc } from "@/lib/trpc";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,7 @@ export function Sidebar({ projectId, chapterId }: { projectId: string; chapterId
   const [bible, setBible] = useState(false);
   const [chars, setChars] = useState<{ open: boolean; id?: string | null }>({ open: false });
   const [loreOpen, setLoreOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; trigger: HTMLElement | null } | null>(null);
 
   const inval = () => queryClient.invalidateQueries({ queryKey: trpc.chapters.list.queryKey(projectId) });
   const create = useMutation(trpc.chapters.create.mutationOptions({ onSuccess: (r) => (inval(), navigate(`/p/${projectId}/${r.id}`)) }));
@@ -67,7 +69,7 @@ export function Sidebar({ projectId, chapterId }: { projectId: string; chapterId
                 </span>
               </Link>
               <DropdownMenu>
-                <DropdownMenuTrigger className="absolute right-1.5 top-2 p-1 rounded opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 hover:bg-background/60">
+                <DropdownMenuTrigger id={`chapter-actions-${c.id}`} aria-label={`Chapter actions for “${c.title}”`} className="absolute right-1.5 top-2 p-1 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 hover:bg-background/60">
                   <MoreHorizontal className="size-3.5" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
@@ -78,7 +80,11 @@ export function Sidebar({ projectId, chapterId }: { projectId: string; chapterId
                     <ArrowDown /> Move down
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onClick={() => confirm(`Delete “${c.title}”? This cannot be undone.`) && del.mutate(c.id)}>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={del.isPending}
+                    onSelect={() => setDeleteTarget({ id: c.id, name: c.title, trigger: document.getElementById(`chapter-actions-${c.id}`) })}
+                  >
                     <Trash2 /> Delete
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -114,6 +120,15 @@ export function Sidebar({ projectId, chapterId }: { projectId: string; chapterId
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        title="Delete chapter?"
+        description={`“${deleteTarget?.name}” will be permanently deleted.`}
+        action="Delete chapter"
+        returnFocusTo={deleteTarget?.trigger}
+        onConfirm={() => { if (deleteTarget) del.mutate(deleteTarget.id); }}
+      />
       <StoryBibleDialog projectId={projectId} open={bible} onOpenChange={setBible} />
       <CharactersDialog projectId={projectId} open={chars.open} initialId={chars.id} onOpenChange={(o) => setChars({ open: o })} />
       <LoreDialog projectId={projectId} open={loreOpen} onOpenChange={setLoreOpen} />
