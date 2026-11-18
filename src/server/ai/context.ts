@@ -39,6 +39,8 @@ export type ContextRequest = {
   mode: AgentMode;
   /** Block ids covered by the user's selection, in order. */
   selectionIds?: string[];
+  /** The exact text the author highlighted (may be part of a paragraph). */
+  selectionText?: string;
   /** Block the cursor is in (used to centre the window on big chapters). */
   focusId?: string | null;
   budget: number;
@@ -362,8 +364,9 @@ export function buildContext(req: ContextRequest): BuiltContext {
 function buildInstruction(req: ContextRequest, format: StoryFormat, blocks: Block[], authorsNote: string): string {
   const parts: string[] = [];
   if (authorsNote.trim()) parts.push(`<authors_note>\n${authorsNote.trim()}\n</authors_note>`);
+  const quoted = req.selectionText?.trim();
   const sel = req.selectionIds?.length
-    ? `\nThe author has selected these blocks: ${req.selectionIds.map((i) => `[p:${i}]`).join(", ")}. Confine edits to them unless told otherwise.`
+    ? `\nThe author has selected ${quoted ? `this text${quoted.length > 1500 ? " (truncated)" : ""}:\n«${quoted.slice(0, 1500)}»\nin` : ""} block${req.selectionIds.length > 1 ? "s" : ""} ${req.selectionIds.map((i) => `[p:${i}]`).join(", ")}. Confine edits to the selected text${quoted ? " (prefer replace_text on exactly that span)" : ""} unless told otherwise.`
     : "";
   const last = blocks.at(-1);
   const modeText: Record<AgentMode, string> = {
@@ -375,7 +378,7 @@ function buildInstruction(req: ContextRequest, format: StoryFormat, blocks: Bloc
       format === "chat"
         ? `Continue the conversation from where it ends${last ? ` (after [p:${last.id}])` : ""}. Reply in character as the other participants — and as the screen's owner too if the scene calls for it — keeping each person's texting voice. Usually 3–15 messages. Use insert_after.`
         : `Continue the chapter from where it ends${last ? ` (after [p:${last.id}])` : ""}. Match voice and tense exactly. Use insert_after.`,
-    revise: `Revise according to the author's direction.${sel} Prefer the smallest edit that achieves the goal: replace_text for phrase-level changes, rewrite_block only when most of a paragraph changes.`,
+    revise: `Rewrite according to the author's direction — content, tone, length or events may change as asked.${sel} Prefer the smallest edit that achieves the goal: replace_text for phrase-level changes, rewrite_block only when most of a paragraph changes.`,
     polish: `Line-edit for prose quality: rhythm, clarity, word choice, redundancy, clichés, continuity errors. Do NOT change plot or meaning. Use replace_text for each fix, with a short reason.${sel}`,
     custom: `Carry out the author's request.${sel} Use the edit tools for any change to the manuscript; answer in plain text if they only asked a question.`,
   };

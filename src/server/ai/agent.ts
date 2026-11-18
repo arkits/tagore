@@ -22,6 +22,7 @@ export type RunRequest = {
   instruction: string;
   mode: AgentMode;
   selectionIds?: string[];
+  selectionText?: string;
   focusId?: string | null;
   model?: string;
   /** Ideas/beats typed with a Draft request; saved as the chapter's notes before the run. */

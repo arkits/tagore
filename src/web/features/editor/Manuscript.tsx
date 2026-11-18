@@ -6,6 +6,9 @@ import { Bold, Clock3, Heading2, Italic, Minus, Pilcrow, Redo2, Undo2, UserRound
 import { BlockIds, SpeakerParagraph } from "./extensions";
 import { Suggestions } from "./suggestions";
 import { StoryDecor, refreshStoryDecor } from "./storyDecor";
+import { SelectionMark } from "./selectionMark";
+import { SelectionBubble } from "./SelectionBubble";
+import type { AgentMode } from "@server/ai/context";
 import type { PMDoc, StoryFormat } from "@shared/doc";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -25,6 +28,8 @@ export function Manuscript({
   handlers,
   onChange,
   onReady,
+  running = false,
+  onSelectionAction,
 }: {
   initial: PMDoc;
   format: StoryFormat;
@@ -35,6 +40,9 @@ export function Manuscript({
   handlers: { current: SuggestionHandlers };
   onChange: (doc: PMDoc) => void;
   onReady: (editor: Editor | null) => void;
+  running?: boolean;
+  /** Run the agent on the current selection (from the floating selection bubble). */
+  onSelectionAction?: (mode: AgentMode, instruction: string) => void;
 }) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -59,6 +67,7 @@ export function Manuscript({
       SpeakerParagraph,
       BlockIds,
       StoryDecor.configure({ getConfig: () => cfgRef.current }),
+      SelectionMark,
       Suggestions.configure({ getHandlers: () => handlers.current }),
       Placeholder.configure({
         placeholder: () =>
@@ -89,6 +98,7 @@ export function Manuscript({
   return (
     <div className="relative">
       {editor && <Toolbar editor={editor} format={format} speakers={speakers} pov={pov} />}
+      {editor && onSelectionAction && <SelectionBubble editor={editor} format={format} running={running} onRun={onSelectionAction} />}
       <div className={cn("manuscript", format === "chat" ? "chat-format" : "prose-format")}>
         <EditorContent editor={editor} />
       </div>

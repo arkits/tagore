@@ -9,6 +9,7 @@ import { queryClient, trpc, type Suggestion } from "@/lib/trpc";
 import { runAgent, type AgentEvent } from "@/lib/agent";
 import { Manuscript, type SuggestionHandlers } from "../editor/Manuscript";
 import { applySuggestion, isApplicable, revealSuggestion, setSuggestions, type EditorSuggestion } from "../editor/suggestions";
+import { setWorkingRange } from "../editor/selectionMark";
 import { ChatComposer, ChatHeader, type Participant } from "../editor/ChatChrome";
 import { getTheme } from "@/lib/themes";
 import { ThemeSwitcher } from "../project/ThemeSwitcher";
@@ -344,8 +345,9 @@ function ChapterSession({
   const run = useCallback(
     async (mode: AgentMode, instruction: string, beats?: string) => {
       if (!editor || running) return;
-      await flush();
+      // Capture the selection before anything async: the bubble collapses it right after calling us.
       const { from, to, empty } = editor.state.selection;
+      const selectionText = empty ? undefined : editor.state.doc.textBetween(from, to, "\n");
       const selectionIds: string[] = [];
       let focusId: string | null = null;
       editor.state.doc.forEach((node, pos) => {
@@ -353,6 +355,8 @@ function ChapterSession({
         if (!empty && end > from && pos < to && node.attrs.id) selectionIds.push(node.attrs.id);
         if (from >= pos && from <= end && node.attrs.id) focusId ??= node.attrs.id;
       });
+      if (!empty) setWorkingRange(editor, { from, to });
+      await flush();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       setRunning(true);
@@ -414,11 +418,12 @@ function ChapterSession({
         }
       };
       try {
-        await runAgent({ chapterId, instruction, mode, selectionIds, focusId, beats }, onEvent, ctrl.signal);
+        await runAgent({ chapterId, instruction, mode, selectionIds, selectionText, focusId, beats }, onEvent, ctrl.signal);
       } catch (err: any) {
         if (!ctrl.signal.aborted) setLive((l) => l && { ...l, error: err.message });
         else setLive((l) => l && { ...l, error: "Stopped." });
       } finally {
+        setWorkingRange(editor, null);
         setDrafts({});
         setRunning(false);
         abortRef.current = null;
@@ -486,6 +491,8 @@ function ChapterSession({
                     handlers={handlers}
                     onChange={onChange}
                     onReady={setEditor}
+                    running={running}
+                    onSelectionAction={(mode, instruction) => run(mode, instruction)}
                   />
                 </div>
                 {format === "chat" && (

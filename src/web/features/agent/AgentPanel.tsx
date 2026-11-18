@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { BookOpen, Feather, Loader2, PenLine, Send, Sparkles, Square, Wand2, Eye, Trash2, X } from "lucide-react";
+import { BookOpen, Feather, Loader2, PenLine, Send, Sparkles, Square, Eye, Trash2, X } from "lucide-react";
 import { queryClient, trpc } from "@/lib/trpc";
 import { CONTEXT_MESSAGES } from "@shared/doc";
 import { Button } from "@/components/ui/button";
@@ -36,8 +36,7 @@ const TOOL_VERB: Record<string, string> = {
 const QUICK: { mode: AgentMode; label: string; icon: React.ElementType; hint: string }[] = [
   { mode: "draft", label: "Draft", icon: Feather, hint: "Write the chapter from the ideas & beats in the box (saved with the chapter)" },
   { mode: "continue", label: "Continue", icon: PenLine, hint: "Carry the story forward from the end" },
-  { mode: "polish", label: "Polish", icon: Sparkles, hint: "Line-edit prose (selection or chapter)" },
-  { mode: "revise", label: "Revise selection", icon: Wand2, hint: "Rework the selected passage per your note" },
+  { mode: "polish", label: "Polish", icon: Sparkles, hint: "Line-edit wording, rhythm and clarity. Meaning and events stay the same." },
 ];
 
 export function AgentPanel({
@@ -150,20 +149,26 @@ export function AgentPanel({
       </div>
 
       <div className="border-t p-3 space-y-2 bg-sidebar/40">
-        <div className="grid grid-cols-2 gap-1.5">
+        <div className="grid grid-cols-3 gap-1.5">
           {QUICK.map((q) => (
             <button
               key={q.mode}
               title={q.hint}
-              disabled={running || (q.mode === "revise" && !hasSelection) || (q.mode === "draft" && !text.trim() && !savedBeats)}
+              disabled={running || (q.mode === "draft" && !text.trim() && !savedBeats)}
               onClick={() => submit(q.mode)}
-              className="flex items-center gap-2 rounded-md border bg-popover/60 px-2.5 py-1.5 text-[13px] hover:bg-accent disabled:opacity-40 disabled:pointer-events-none text-left"
+              className="flex items-center justify-center gap-1.5 rounded-md border bg-popover/60 px-2 py-1.5 text-[13px] hover:bg-accent disabled:opacity-40 disabled:pointer-events-none"
             >
               <q.icon className="size-3.5 text-oxblood shrink-0" />
-              {q.label}
+              {q.mode === "polish" ? (hasSelection ? "Polish sel." : "Polish all") : q.label}
             </button>
           ))}
         </div>
+        {hasSelection && (
+          <p className="flex items-center gap-1.5 rounded-md bg-oxblood/8 px-2.5 py-1.5 text-[12px] text-ink-soft">
+            <span className="size-1.5 rounded-full bg-oxblood shrink-0" />
+            Text is selected: requests below apply to it. Use the bubble over the selection for quick edits.
+          </p>
+        )}
         {savedBeats && (
           <button
             onClick={() => setText(savedBeats)}
@@ -207,7 +212,7 @@ export function AgentPanel({
           )}
         </div>
         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-          <span className="truncate">{hasSelection ? "Selection will be the focus." : savedBeats ? "Draft reuses saved beats if empty." : "Draft saves the box as beats."}</span>
+          <span className="truncate">{hasSelection ? "Focused on your selection." : savedBeats ? "Draft reuses saved beats if empty." : "Draft saves the box as beats."}</span>
           <button className="inline-flex items-center gap-1 hover:text-ink shrink-0 ml-2" onClick={() => setPreview(true)}>
             <Eye className="size-3" /> What the agent sees
           </button>

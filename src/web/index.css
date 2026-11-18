@@ -502,3 +502,23 @@ html.theme-transition, html.theme-transition * {
   field-sizing: content;
   min-height: 1lh;
 }
+
+/* ----------------------------------------------------- selection states */
+/* the author's selection stays visible after focus moves to the bubble or panel */
+.sel-ghost {
+  background: color-mix(in oklab, var(--oxblood) 18%, transparent);
+  border-radius: 2px;
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--oxblood) 55%, transparent);
+}
+/* the passage the agent is working on */
+.sel-working {
+  border-radius: 2px;
+  background: linear-gradient(100deg,
+    color-mix(in oklab, var(--oxblood) 10%, transparent) 30%,
+    color-mix(in oklab, var(--oxblood) 30%, transparent) 50%,
+    color-mix(in oklab, var(--oxblood) 10%, transparent) 70%) 0 0 / 300% 100%;
+  animation: sel-shimmer 1.6s linear infinite;
+}
+@keyframes sel-shimmer { from { background-position: 100% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .sel-working { animation: none; } }
+.sel-bubble { font-family: var(--ui-font); }

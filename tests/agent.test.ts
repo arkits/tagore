@@ -119,6 +119,13 @@ test("deleted history messages are no longer sent to the model", async () => {
   expect(after).not.toContain(marker);
 });
 
+test("context: the exact selected text reaches the agent", () => {
+  const ctx = buildContext({ chapterId: "c2", instruction: "make it eerie", mode: "revise", selectionIds: ["blk0"], selectionText: "grey over the Varos coast", budget: 20000 });
+  expect(ctx.prompt).toContain("«grey over the Varos coast»");
+  expect(ctx.prompt).toContain("[p:blk0]");
+  expect(ctx.prompt).toContain("prefer replace_text on exactly that span");
+});
+
 test("png cards round-trip", () => {
   // 1x1 transparent PNG
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
