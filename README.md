@@ -19,6 +19,8 @@ Production / self-host:
 bun run build && bun run start   # serves UI + API on :3001 (TAGORE_PORT or PORT to change)
 ```
 
+To install Tagore as a standalone app, open the production build over HTTPS (or localhost) and use your browser’s **Install app** or **Add to Home Screen** option. If the server is unreachable, opening or reloading Tagore shows a reconnect page. Writing and AI features require a connection to your Tagore server.
+
 Data lives in `data/tagore.db` (override with `TAGORE_DB`). Keys can also come from `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`.
 
 Offline UI development: `TAGORE_MOCK=1 bun run dev` adds a scripted **Mock writer** model.

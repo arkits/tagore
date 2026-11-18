@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "Tagore",
+  "short_name": "Tagore",
+  "description": "A self-hosted writing room with an AI co-author.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fbf5e8",
+  "theme_color": "#211a14",
+  "icons": [
+    { "src": "/icons/tagore-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/tagore-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
