@@ -72,8 +72,8 @@ export function Manuscript({
       Placeholder.configure({
         placeholder: () =>
           cfgRef.current.format === "chat"
-            ? "Start the conversation below — or give the agent your beats and press Draft…"
-            : "Begin here — or type your ideas in the agent panel and press Draft…",
+            ? "Start the conversation below, or send a direction in the Agent panel…"
+            : "Begin here, or send a direction in the Agent panel…",
       }),
     ],
     content: initial,

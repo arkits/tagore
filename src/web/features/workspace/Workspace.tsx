@@ -404,7 +404,7 @@ function ChapterSession({
 
   /* -------------------------------------------------- agent */
   const run = useCallback(
-    async (mode: AgentMode, instruction: string, beats?: string) => {
+    async (mode: AgentMode, instruction: string) => {
       if (!editor || running) return;
       // Capture the selection before anything async: the bubble collapses it right after calling us.
       const { from, to, empty } = editor.state.selection;
@@ -422,7 +422,7 @@ function ChapterSession({
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       setTab("agent");
-      setLive({ mode, instruction: instruction || beats || "", status: [], text: "", tools: [], suggestions: 0 });
+      setLive({ mode, instruction, status: [], text: "", tools: [], suggestions: 0 });
       const seen = new Set<string>();
       const onEvent = (e: AgentEvent) => {
         switch (e.t) {
@@ -482,7 +482,7 @@ function ChapterSession({
         }
       };
       try {
-        await runAgent({ chapterId, instruction, mode, selectionIds, selectionText, focusId, beats }, onEvent, ctrl.signal);
+        await runAgent({ chapterId, instruction, mode, selectionIds, selectionText, focusId }, onEvent, ctrl.signal);
       } catch (err: any) {
         if (!ctrl.signal.aborted) setLive((l) => l && { ...l, error: err.message });
         else setLive((l) => l && { ...l, error: "Stopped." });
@@ -493,7 +493,6 @@ function ChapterSession({
         abortRef.current = null;
         queryClient.invalidateQueries({ queryKey: trpc.agent.log.queryKey(chapterId) });
         queryClient.invalidateQueries({ queryKey: trpc.chapters.list.queryKey(projectId) });
-        if (beats) queryClient.invalidateQueries({ queryKey: trpc.chapters.get.queryKey(chapterId) });
       }
     },
     [editor, running, flush, chapterId, projectId],

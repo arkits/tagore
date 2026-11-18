@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { BookOpen, Feather, Loader2, PenLine, Send, Sparkles, Square, Trash2, X } from "lucide-react";
+import { BookOpen, Loader2, PenLine, Send, Square, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { queryClient, trpc } from "@/lib/trpc";
 import { CONTEXT_MESSAGES } from "@shared/doc";
@@ -36,12 +36,6 @@ const TOOL_VERB: Record<string, string> = {
   search_manuscript: "Searching the manuscript",
 };
 
-const QUICK: { mode: AgentMode; label: string; icon: React.ElementType; hint: string }[] = [
-  { mode: "draft", label: "Draft", icon: Feather, hint: "Write the chapter from the ideas & beats in the box (saved with the chapter)" },
-  { mode: "continue", label: "Continue", icon: PenLine, hint: "Carry the story forward from the end" },
-  { mode: "polish", label: "Polish", icon: Sparkles, hint: "Line-edit wording, rhythm and clarity. Meaning and events stay the same." },
-];
-
 export function AgentPanel({
   chapterId,
   live,
@@ -54,7 +48,7 @@ export function AgentPanel({
   live: LiveRun | null;
   running: boolean;
   hasSelection: boolean;
-  onRun: (mode: AgentMode, instruction: string, beats?: string) => void;
+  onRun: (mode: AgentMode, instruction: string) => void;
   onStop: () => void;
 }) {
   const [text, setText] = useState("");
@@ -87,17 +81,16 @@ export function AgentPanel({
     },
     onError: (error) => toast.error(`Couldn’t clear saved beats: ${error.message}`),
   }));
+  const showContinue = !running && (live ? live.done : history.at(-1)?.role === "assistant");
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [live?.text, live?.tools.length, live?.status.length, live?.done, log.data?.length]);
+  }, [live?.text, live?.tools.length, live?.status.length, showContinue, log.data?.length]);
 
-  const submit = (mode: AgentMode) => {
-    if (running || (mode === "draft" && clearBeats.isPending)) return;
-    // Draft treats the box as the chapter's ideas & beats (persisted); other modes treat it as an instruction.
-    if (mode === "draft") onRun("draft", "", text.trim() || undefined);
-    else onRun(mode, text);
+  const submit = (mode: "continue" | "custom" | "revise") => {
+    if (running) return;
+    onRun(mode, text);
     setText("");
   };
 
@@ -108,7 +101,7 @@ export function AgentPanel({
           <div className="text-center px-4 pt-8 pb-4">
             <p className="font-display text-xl text-ink-soft">Your co-author</p>
             <p className="font-book text-[15px] text-muted-foreground mt-2 leading-relaxed">
-              Type your ideas and beats below, then press <em>Draft</em>. Every change arrives as a tracked suggestion you can accept or reject.
+              Describe what you’d like to write or change. Edits arrive as tracked suggestions you can accept or reject.
             </p>
           </div>
         )}
@@ -156,24 +149,21 @@ export function AgentPanel({
           </div>
         ))}
         {live && <LiveRunView run={live} running={running} />}
+        {showContinue && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            title="Carry the story forward from the end"
+            onClick={() => submit("continue")}
+          >
+            <PenLine className="size-3.5 text-oxblood" /> Continue
+          </Button>
+        )}
         <div ref={endRef} />
       </div>
 
       <div className="border-t p-3 space-y-2 bg-sidebar/40">
-        <div className="grid grid-cols-3 gap-1.5">
-          {QUICK.map((q) => (
-            <button
-              key={q.mode}
-              title={q.hint}
-              disabled={running || (q.mode === "draft" && (clearBeats.isPending || (!text.trim() && !savedBeats)))}
-              onClick={() => submit(q.mode)}
-              className="flex items-center justify-center gap-1.5 rounded-md border bg-popover/60 px-2 py-1.5 text-[13px] hover:bg-accent disabled:opacity-40 disabled:pointer-events-none"
-            >
-              <q.icon className="size-3.5 text-oxblood shrink-0" />
-              {q.mode === "polish" ? (hasSelection ? "Polish sel." : "Polish all") : q.label}
-            </button>
-          ))}
-        </div>
         {hasSelection && (
           <p className="flex items-center gap-1.5 rounded-md bg-oxblood/8 px-2.5 py-1.5 text-[12px] text-ink-soft">
             <span className="size-1.5 rounded-full bg-oxblood shrink-0" />
@@ -189,7 +179,7 @@ export function AgentPanel({
             >
               <span className="small-caps text-[11px] text-oxblood shrink-0">beats</span>
               <span className="font-book italic text-ink-soft truncate flex-1">{savedBeats.replace(/\s+/g, " ")}</span>
-              <span className="text-muted-foreground shrink-0">edit</span>
+              <span className="text-muted-foreground shrink-0">use as prompt</span>
             </button>
             <Button
               type="button"
@@ -216,7 +206,7 @@ export function AgentPanel({
             placeholder={
               hasSelection
                 ? "What should change in the selection?"
-                : "Ideas & beats for this chapter, then Draft — or any direction for the agent (⌘↵ to send)"
+                : "Give the agent a direction (⌘↵ to send)"
             }
             className="pr-11 resize-none font-book text-[15px] bg-popover/70"
           />
