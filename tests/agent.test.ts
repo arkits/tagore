@@ -60,7 +60,11 @@ test("agent: tool calls become validated suggestions, never document writes", as
   const failed = events.find((e) => e.t === "tool-result" && !e.ok);
   expect(failed.message).toContain("does not exist");
   expect(events.find((e) => e.t === "text")).toBeTruthy();
-  expect(events.at(-1).t).toBe("done");
+  const start = events[0];
+  expect(start).toEqual({ t: "run-start", runId: expect.any(String) });
+  expect(events.at(-1)).toMatchObject({ t: "done", runId: start.runId });
+  const requests = db.select().from(schema.agentMessages).where(eq(schema.agentMessages.runId, start.runId)).all();
+  expect(requests.filter((m) => m.role === "user")).toHaveLength(1);
   // the chapter itself is untouched
   const ch = db.select().from(schema.chapters).all().find((c) => c.id === "c2")!;
   expect(ch.content.content).toHaveLength(2);

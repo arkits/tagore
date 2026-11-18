@@ -32,6 +32,7 @@ export type RunRequest = {
 export type Suggestion = typeof schema.suggestions.$inferSelect;
 
 export type AgentEvent =
+  | { t: "run-start"; runId: string }
   | { t: "status"; message: string }
   | { t: "context"; sections: { name: string; tokens: number; detail?: string }[]; total: number; budget: number; model: string }
   | { t: "text"; delta: string }
@@ -52,6 +53,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
   const modelRef = req.model || settings.model;
   const model = getModel(modelRef, settings);
   const runId = nanoid(10);
+  emit({ t: "run-start", runId });
 
   /* ---- 1. refresh stale summaries of other chapters (long-range memory) ---- */
   if (req.beats !== undefined && req.beats.trim())

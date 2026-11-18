@@ -426,6 +426,9 @@ function ChapterSession({
       const seen = new Set<string>();
       const onEvent = (e: AgentEvent) => {
         switch (e.t) {
+          case "run-start":
+            setLive((l) => l && { ...l, runId: e.runId });
+            break;
           case "status":
             setLive((l) => l && { ...l, status: [...l.status, e.message] });
             break;
