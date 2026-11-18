@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Plus, Trash2 } from "lucide-react";
+import { Download, Plus, Search, Trash2, Upload } from "lucide-react";
+import { toast } from "sonner";
 import { queryClient, trpc, type Outputs } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -15,9 +16,35 @@ type Entry = Outputs["lore"]["list"][number];
 export function LoreDialog({ projectId, open, onOpenChange }: { projectId: string; open: boolean; onOpenChange: (o: boolean) => void }) {
   const list = useQuery(trpc.lore.list.queryOptions(projectId));
   const [sel, setSel] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: trpc.lore.list.queryKey(projectId) });
   const create = useMutation(trpc.lore.create.mutationOptions({ onSuccess: (r) => (invalidate(), setSel(r.id)) }));
   const del = useMutation(trpc.lore.delete.mutationOptions({ onSuccess: () => (invalidate(), setSel(null)) }));
+  const imp = useMutation(
+    trpc.lore.import.mutationOptions({
+      onSuccess: (r) => {
+        invalidate();
+        const extra = [r.duplicates && `${r.duplicates} already present`, r.skipped && `${r.skipped} empty skipped`].filter(Boolean).join(", ");
+        toast.success(`Imported ${r.imported} entr${r.imported === 1 ? "y" : "ies"} from “${r.name}”${extra ? ` (${extra})` : ""}`);
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+  const importFiles = async (files: FileList | File[] | null) => {
+    for (const file of Array.from(files ?? [])) {
+      if (!/\.json$/i.test(file.name) && file.type !== "application/json") {
+        toast.error(`${file.name}: lorebooks are JSON files.`);
+        continue;
+      }
+      await imp.mutateAsync({ projectId, fileName: file.name, text: await file.text() }).catch(() => {});
+    }
+  };
+  const q = filter.trim().toLowerCase();
+  const shown = (list.data ?? []).filter(
+    (e) => !q || e.name.toLowerCase().includes(q) || e.keys.some((k) => k.toLowerCase().includes(q)) || e.content.toLowerCase().includes(q),
+  );
   const entry = list.data?.find((e) => e.id === sel) ?? null;
 
   useEffect(() => {
@@ -28,15 +55,75 @@ export function LoreDialog({ projectId, open, onOpenChange }: { projectId: strin
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl h-[80vh] flex flex-col p-0 gap-0">
         <DialogHeader className="px-6 pt-6 pb-4 border-b">
-          <DialogTitle className="font-display text-2xl font-normal">Lorebook</DialogTitle>
-          <DialogDescription>
-            World facts that enter the agent’s context only when their keywords appear near where it’s writing. “Always on” entries are always included.
-          </DialogDescription>
+          <div className="flex items-end gap-4 pr-8">
+            <div className="flex-1">
+              <DialogTitle className="font-display text-2xl font-normal">Lorebook</DialogTitle>
+              <DialogDescription className="mt-1.5">
+                World facts that enter the agent’s context only when their keywords appear near where it’s writing. “Always on” entries are always included.
+              </DialogDescription>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={imp.isPending}>
+                <Upload className="size-4" /> Import
+              </Button>
+              <Button variant="ghost" size="sm" asChild disabled={!list.data?.length}>
+                <a href={`/api/projects/${projectId}/lorebook.json`} aria-disabled={!list.data?.length}>
+                  <Download className="size-4" /> Export
+                </a>
+              </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".json,application/json"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  importFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+          </div>
         </DialogHeader>
-        <div className="flex flex-1 min-h-0">
+        <div
+          className="relative flex flex-1 min-h-0"
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes("Files")) return;
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            importFiles(e.dataTransfer.files);
+          }}
+        >
+          {dragging && (
+            <div className="absolute inset-3 z-20 rounded-md border-2 border-dashed border-oxblood bg-paper/90 grid place-items-center pointer-events-none">
+              <div className="text-center">
+                <Upload className="size-6 mx-auto text-oxblood" />
+                <p className="font-display text-xl mt-2">Drop to import</p>
+                <p className="text-sm text-muted-foreground italic">SillyTavern world info, Chub lorebooks, or character-card books</p>
+              </div>
+            </div>
+          )}
           <div className="w-64 border-r flex flex-col">
+            {(list.data?.length ?? 0) > 6 && (
+              <div className="relative border-b">
+                <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder={`Filter ${list.data?.length} entries…`}
+                  className="w-full bg-transparent pl-8 pr-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/70"
+                />
+              </div>
+            )}
             <div className="flex-1 overflow-y-auto thin-scroll p-2 space-y-0.5">
-              {list.data?.map((e) => (
+              {shown.map((e) => (
                 <button
                   key={e.id}
                   onClick={() => setSel(e.id)}
@@ -46,7 +133,15 @@ export function LoreDialog({ projectId, open, onOpenChange }: { projectId: strin
                   <div className="text-xs text-muted-foreground truncate">{e.constant ? "Always on" : e.keys.join(", ") || "no keys"}</div>
                 </button>
               ))}
-              {!list.data?.length && <p className="text-sm text-muted-foreground p-3">No entries yet.</p>}
+              {!list.data?.length && (
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  className="w-full rounded-md border border-dashed p-4 text-left text-sm text-muted-foreground hover:border-ring hover:text-ink"
+                >
+                  No entries yet. <span className="italic">Drop a lorebook JSON here, or click to import one.</span>
+                </button>
+              )}
+              {!!list.data?.length && !shown.length && <p className="text-sm text-muted-foreground p-3 italic">Nothing matches.</p>}
             </div>
             <div className="p-2 border-t">
               <Button variant="outline" className="w-full" onClick={() => create.mutate({ projectId })}>

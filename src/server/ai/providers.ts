@@ -5,7 +5,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { getSettings, type AppSettings, type ProviderId } from "../settings";
 import { createMockWriter } from "./mock";
 
-const MOCK = !!process.env.TAGORE_MOCK;
+const mockEnabled = () => !!process.env.TAGORE_MOCK;
 
 export type ModelInfo = {
   /** "<provider>:<modelId>" */
@@ -26,7 +26,7 @@ export function parseModelRef(ref: string): { provider: ProviderId; modelId: str
 
 export function getModel(ref: string, s: AppSettings = getSettings()) {
   const { provider, modelId } = parseModelRef(ref);
-  if (MOCK && (provider as string) === "mock") return createMockWriter();
+  if (mockEnabled() && (provider as string) === "mock") return createMockWriter();
   switch (provider) {
     case "openrouter": {
       if (!s.providers.openrouter.apiKey) throw new Error("OpenRouter API key is not set (Settings → Providers).");
@@ -134,7 +134,7 @@ export async function listModels(force = false): Promise<{ models: ModelInfo[]; 
     );
   }
 
-  if (MOCK) jobs.push(Promise.resolve([{ id: "mock:writer", provider: "custom" as const, modelId: "writer", name: "Mock writer (offline)", contextLength: 200_000 }]));
+  if (mockEnabled()) jobs.push(Promise.resolve([{ id: "mock:writer", provider: "custom" as const, modelId: "writer", name: "Mock writer (offline)", contextLength: 200_000 }]));
 
   const results = await Promise.allSettled(jobs);
   const models: ModelInfo[] = [];

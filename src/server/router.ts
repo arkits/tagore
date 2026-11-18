@@ -10,6 +10,7 @@ import { listModels, testProvider } from "./ai/providers";
 import { summarizeChapter } from "./ai/summarize";
 import { buildContext } from "./ai/context";
 import { extractCardFromPng } from "./cards/png";
+import { parseLorebook } from "../shared/lorebook";
 
 const t = initTRPC.create();
 const p = t.procedure;
@@ -297,6 +298,36 @@ const loreRouter = t.router({
   delete: p.input(z.string()).mutation(({ input }) => {
     db.delete(schema.loreEntries).where(eq(schema.loreEntries.id, input)).run();
     return { ok: true };
+  }),
+  /** Import a SillyTavern world info / Character Card lorebook JSON (raw file text). */
+  import: p.input(z.object({ projectId: z.string(), fileName: z.string(), text: z.string().max(20_000_000) })).mutation(({ input }) => {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(input.text);
+    } catch {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `${input.fileName} isn't valid JSON.` });
+    }
+    let book;
+    try {
+      book = parseLorebook(raw, input.fileName.replace(/\.json$/i, ""));
+    } catch (e: any) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+    }
+    // Skip exact duplicates of entries already in the project (same name + content), so re-importing is harmless.
+    const existing = new Set(
+      db
+        .select({ name: schema.loreEntries.name, content: schema.loreEntries.content })
+        .from(schema.loreEntries)
+        .where(eq(schema.loreEntries.projectId, input.projectId))
+        .all()
+        .map((e) => `${e.name}\u0000${e.content}`),
+    );
+    const fresh = book.entries.filter((e) => !existing.has(`${e.name}\u0000${e.content}`));
+    if (fresh.length)
+      db.insert(schema.loreEntries)
+        .values(fresh.map((e) => ({ id: nanoid(10), projectId: input.projectId, ...e })))
+        .run();
+    return { name: book.name, imported: fresh.length, duplicates: book.entries.length - fresh.length, skipped: book.skipped };
   }),
 });
 

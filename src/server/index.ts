@@ -6,6 +6,18 @@ import { runAgent, type AgentEvent, type RunRequest } from "./ai/agent";
 import { db, schema } from "./db";
 import { embedCardInPng } from "./cards/png";
 import { toCardV2 } from "../shared/character";
+import { toWorldInfo } from "../shared/lorebook";
+
+function exportLorebook(projectId: string): Response {
+  const project = db.select().from(schema.projects).where(eq(schema.projects.id, projectId)).get();
+  if (!project) return new Response("Not found", { status: 404 });
+  const entries = db.select().from(schema.loreEntries).where(eq(schema.loreEntries.projectId, projectId)).all();
+  const name = `${project.title} lorebook`;
+  const safe = name.replace(/[^\w\- ]+/g, "").trim() || "lorebook";
+  return new Response(JSON.stringify(toWorldInfo(name, entries), null, 2), {
+    headers: { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="${safe}.json"` },
+  });
+}
 
 const PORT = Number(process.env.TAGORE_PORT ?? (process.env.NODE_ENV === "production" ? process.env.PORT : undefined) ?? 3001);
 const DIST = path.resolve(import.meta.dir, "../../dist");
@@ -67,6 +79,8 @@ const server = Bun.serve({
     if (url.pathname === "/api/agent/run" && req.method === "POST") return agentStream(req);
     const exp = /^\/api\/characters\/([\w-]+)\/export\.(png|json)$/.exec(url.pathname);
     if (exp) return exportCharacter(exp[1]!, exp[2]!);
+    const lb = /^\/api\/projects\/([\w-]+)\/lorebook\.json$/.exec(url.pathname);
+    if (lb) return exportLorebook(lb[1]!);
 
     if (isProd) {
       const file = Bun.file(path.join(DIST, url.pathname));
