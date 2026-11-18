@@ -60,6 +60,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
     db.update(schema.chapters).set({ notes: req.beats.trim() }).where(eq(schema.chapters.id, req.chapterId)).run();
   const chapter = db.select().from(schema.chapters).where(eq(schema.chapters.id, req.chapterId)).get();
   if (!chapter) throw new Error("Chapter not found");
+  const isReply = req.mode === "reply";
   const stale = otherChapters(chapter.projectId, chapter.id).filter(
     (c) => c.wordCount > 30 && c.summaryHash !== c.contentHash,
   );
@@ -78,6 +79,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
   const ctxLen = modelInfo?.contextLength;
   const budget = Math.max(4000, Math.min(settings.contextBudget, ctxLen ? Math.floor(ctxLen * 0.7) - 8000 : Infinity));
   const ctx = buildContext({ ...req, budget });
+  if (isReply && ctx.project.format !== "chat") throw new Error("Replies are only available in chat stories.");
   emit({ t: "context", sections: ctx.sections, total: ctx.totalTokens, budget, model: modelRef });
 
   const userMsg = req.instruction.trim() || req.beats?.trim() || `(${req.mode})`;
@@ -99,9 +101,15 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
     const blockId = normalizeBlockId(id);
     return blockById.has(blockId) ? blockId : undefined;
   };
+  const replyAnchor = ctx.blocks.at(-1)?.id ?? null;
+  const replyPov = (ctx.project.pov.trim() || "Me").toLowerCase();
   const touched = new Set<string>();
   let seq = 0;
   let lastInsert: { id: string; op: Extract<SuggestionOp, { op: "insert_after" }> } | null = null;
+
+  const validReply = (afterId: string | null, blocks: NewBlock[]) =>
+    afterId === replyAnchor && blocks.length + (lastInsert?.op.blocks.length ?? 0) <= 3
+    && blocks.every((block) => block.type === "paragraph" && block.text.trim() && block.speaker && block.speaker.toLowerCase() !== replyPov);
 
   // Earlier pending suggestions on the same block are superseded by new ones.
   const pendingByBlock = new Map<string, string[]>();
@@ -135,6 +143,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
       if (!blocks.length) return null;
       const afterId = insertionAnchor(input.after_id);
       if (afterId === undefined) return null;
+      if (isReply && !validReply(afterId, blocks)) return null;
       if (lastInsert && (input.after_id === "LAST" || (afterId !== null && afterId === lastInsert.op.afterId)))
         return { op: { ...lastInsert.op, blocks: [...lastInsert.op.blocks, ...blocks] }, mergeInto: lastInsert.id };
       return { op: { op: "insert_after", afterId, blocks } };
@@ -226,6 +235,8 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
         const blocks = parseBlocks(text);
         const afterId = insertionAnchor(after_id);
         if (afterId === undefined) return `Error: block ${after_id} does not exist.`;
+        if (isReply && !validReply(afterId, blocks))
+          return 'Error: append up to three messages from the other participants after "LAST". Include each sender name in braces.';
         // Appending to the same anchor (or "LAST") extends the previous insert so order is preserved.
         if (lastInsert && (after_id === "LAST" || (afterId !== null && afterId === lastInsert.op.afterId))) {
           lastInsert.op.blocks.push(...blocks);
@@ -309,7 +320,7 @@ export async function runAgent(req: RunRequest, emit: (e: AgentEvent) => void, s
     model,
     instructions: ctx.system,
     prompt: ctx.prompt,
-    tools,
+    tools: isReply ? { insert_after: tools.insert_after } : tools,
     stopWhen: isStepCount(40),
     temperature: settings.temperature,
     providerOptions: openRouterReasoningOptions(modelInfo, settings.openRouterReasoning),

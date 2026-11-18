@@ -163,7 +163,7 @@ const chaptersRouter = t.router({
   summarize: p.input(z.string()).mutation(async ({ input }) => ({ summary: await summarizeChapter(input) })),
   /** Preview exactly what the agent would see, without calling a model. */
   contextPreview: p
-    .input(z.object({ chapterId: z.string(), mode: z.enum(["draft", "continue", "revise", "polish", "custom"]), instruction: z.string().default("") }))
+    .input(z.object({ chapterId: z.string(), mode: z.enum(["draft", "continue", "reply", "revise", "polish", "custom"]), instruction: z.string().default("") }))
     .query(({ input }) => {
       const ctx = buildContext({ ...input, budget: getSettings().contextBudget });
       return { system: ctx.system, prompt: ctx.prompt, sections: ctx.sections, total: ctx.totalTokens };

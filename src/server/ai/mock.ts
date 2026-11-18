@@ -39,10 +39,14 @@ function promptText(prompt: any[]): { user: string; system: string; hasToolResul
   return { user, system, hasToolResults };
 }
 
-function chatLines(user: string): string {
+function chatLines(user: string, reply: boolean): string {
   const me = /Whose screen this is[^:]*: (.+)/.exec(user)?.[1]?.trim();
   const meName = me && !me.startsWith("unspecified") ? me : "Mara";
-  const them = [...user.matchAll(/^### ([^\n(“]+)/gm)].map((m) => m[1]!.trim()).find((n) => n !== meName) ?? "Jonah";
+  const cast = /<characters>([\s\S]*?)<\/characters>/.exec(user)?.[1] ?? "";
+  const them = [...cast.matchAll(/^### ([^\n(“]+)|^- (.+?)(?: — |$)/gm)]
+    .map((m) => (m[1] ?? m[2] ?? "").trim())
+    .find((name) => name && name !== meName && name !== "Others in the cast") ?? "Jonah";
+  if (reply) return `{${them}} hey, i'm here`;
   return [
     `{${them}} you still up?`,
     `{${them}} i went back to the lighthouse`,
@@ -82,12 +86,13 @@ export function createMockWriter() {
       }
       const { user, system, hasToolResults } = promptText(prompt as any[]);
       const chat = (system + user).includes("CHAT story") || user.includes("Format: chat story");
+      const reply = user.includes("<task>\nReply to the latest message");
       const polish = user.includes("<task>\nLine-edit for prose quality:");
       const parts: Part[] = [{ type: "stream-start", warnings: [] }];
       if (hasToolResults) {
         parts.push(
           { type: "text-start", id: "t" },
-          { type: "text-delta", id: "t", delta: polish ? "I suggested an edit to the opening beat." : chat ? "Jonah answered — and the light came back on." : "I tightened the opening line and carried the scene forward by two paragraphs." },
+          { type: "text-delta", id: "t", delta: reply ? "The other participant replied." : polish ? "I suggested an edit to the opening beat." : chat ? "Jonah answered — and the light came back on." : "I tightened the opening line and carried the scene forward by two paragraphs." },
           { type: "text-end", id: "t" },
           { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage: usage(1200, 40) },
         );
@@ -107,8 +112,8 @@ export function createMockWriter() {
         } else if (chat) {
           parts.push(
             ...toolCall("c1", "insert_after", {
-              after_id: withText.at(-1)?.id ?? blocks[0]?.id ?? "START",
-              text: chatLines(user),
+              after_id: reply ? "LAST" : withText.at(-1)?.id ?? blocks[0]?.id ?? "START",
+              text: chatLines(user, reply),
               reason: "Continue the conversation.",
             }),
           );

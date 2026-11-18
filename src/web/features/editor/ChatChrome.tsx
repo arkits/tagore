@@ -67,7 +67,7 @@ export function ChatHeader({ theme, others, pov }: { theme: string; others: Part
 
 /**
  * Compose box at the foot of the thread. Sending appends a real message (it's the author's own
- * writing, so no suggestion). ✨ asks the agent to write the replies.
+ * writing). Sending from the phone’s owner also asks the agent for a reply.
  */
 export function ChatComposer({
   editor,
@@ -75,6 +75,7 @@ export function ChatComposer({
   pov,
   theme,
   busy,
+  awaitingReply,
   onReply,
 }: {
   editor: Editor | null;
@@ -82,6 +83,7 @@ export function ChatComposer({
   pov: string;
   theme: string;
   busy: boolean;
+  awaitingReply: boolean;
   onReply: () => void;
 }) {
   const [as, setAs] = useState(pov || speakers[0] || "Me");
@@ -99,7 +101,7 @@ export function ChatComposer({
 
   const send = () => {
     const t = text.trim();
-    if (!editor || !t) return;
+    if (!editor || !t || busy) return;
     const doc = editor.state.doc;
     const last = doc.lastChild;
     const nodes = t.split(/\n+/).map((line) => ({
@@ -111,8 +113,10 @@ export function ChatComposer({
     if (last && last.type.name === "paragraph" && last.content.size === 0) {
       chain.insertContentAt({ from: doc.content.size - last.nodeSize, to: doc.content.size }, nodes);
     } else chain.insertContentAt(doc.content.size, nodes);
-    chain.run();
+    if (!chain.run()) return;
     setText("");
+    taRef.current?.focus();
+    if (as === pov) onReply();
     requestAnimationFrame(() => {
       const el = editor.view.dom.lastElementChild as HTMLElement | null;
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -132,6 +136,7 @@ export function ChatComposer({
         <span>link</span>
         <span>☺</span>
       </div>
+      {awaitingReply && <p role="status" className="px-3 pb-1 text-xs text-muted-foreground">Typing…</p>}
       <div className="chat-compose-row">
         <select className="chat-as" value={as} onChange={(e) => setAs(e.target.value)} title="Send as">
           {speakers.map((n) => (
@@ -156,7 +161,7 @@ export function ChatComposer({
           placeholder={theme === "imessage" ? "iMessage" : theme === "whatsapp" ? "Message" : `Type as ${as === "__system" ? "system" : as}…`}
           className="chat-input"
         />
-        <button className={cn("chat-send", !text.trim() && "is-empty")} onClick={send} disabled={!text.trim()} title="Send (Enter)">
+        <button className={cn("chat-send", !text.trim() && "is-empty")} onClick={send} disabled={busy || !text.trim()} title="Send (Enter)">
           {sendLabel || <ArrowUp className="size-4" strokeWidth={2.75} />}
         </button>
         <button className="chat-reply" onClick={onReply} disabled={busy} title="Let them reply (agent continues the conversation)">

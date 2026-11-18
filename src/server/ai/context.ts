@@ -31,7 +31,7 @@ import {
 } from "../../shared/doc";
 import { expandMacros, type CardData } from "../../shared/character";
 
-export type AgentMode = "draft" | "continue" | "revise" | "polish" | "custom";
+export type AgentMode = "draft" | "continue" | "reply" | "revise" | "polish" | "custom";
 
 export type ContextRequest = {
   chapterId: string;
@@ -205,7 +205,7 @@ export function buildContext(req: ContextRequest): BuiltContext {
     const card = c.card;
     const names = [card.name, card.nickname, ...card.name.split(/\s+/).filter((p) => p.length > 2)].filter(Boolean) as string[];
     const mentioned = names.some((n) => keyMatches(n, scan));
-    (pinned || mentioned ? full : roster).push(card);
+    (pinned || mentioned || req.mode === "reply" ? full : roster).push(card);
     for (const e of card.character_book?.entries ?? []) {
       if (!e.enabled) continue;
       bookEntries.push({
@@ -306,7 +306,7 @@ export function buildContext(req: ContextRequest): BuiltContext {
     : "";
 
   /* ---- 8. author's note + instruction ---- */
-  const tail = buildInstruction(req, project.format, blocks, project.authorsNote);
+  const tail = buildInstruction(req, project.format, blocks, project.authorsNote, project.pov.trim());
 
   /* ---- 6. current chapter ---- */
   const usedSoFar = sections.reduce((n, s) => n + s.tokens, 0) + estimateTokens(logText) + estimateTokens(tail) + 1800;
@@ -361,7 +361,7 @@ export function buildContext(req: ContextRequest): BuiltContext {
   };
 }
 
-function buildInstruction(req: ContextRequest, format: StoryFormat, blocks: Block[], authorsNote: string): string {
+function buildInstruction(req: ContextRequest, format: StoryFormat, blocks: Block[], authorsNote: string, pov: string): string {
   const parts: string[] = [];
   if (authorsNote.trim()) parts.push(`<authors_note>\n${authorsNote.trim()}\n</authors_note>`);
   const quoted = req.selectionText?.trim();
@@ -378,6 +378,7 @@ function buildInstruction(req: ContextRequest, format: StoryFormat, blocks: Bloc
       format === "chat"
         ? `Continue the conversation from where it ends${last ? ` (after [p:${last.id}])` : ""}. Reply in character as the other participants — and as the screen's owner too if the scene calls for it — keeping each person's texting voice. Usually 3–15 messages. Use insert_after.`
         : `Continue the chapter from where it ends${last ? ` (after [p:${last.id}])` : ""}. Match voice and tense exactly. Use insert_after.`,
+    reply: `Reply to the latest message as the other participant(s), in character. Use insert_after with after_id "LAST" and write one to three messages. Use the character’s nickname as the sender if they have one. Never speak as the phone’s owner (${pov || "Me"}), write narration, or add timestamps.`,
     revise: `Rewrite according to the author's direction — content, tone, length or events may change as asked.${sel} Prefer the smallest edit that achieves the goal: replace_text for phrase-level changes, rewrite_block only when most of a paragraph changes.`,
     polish: `Line-edit for prose quality: rhythm, clarity, word choice, redundancy, clichés, continuity errors. Do NOT change plot or meaning. Use one replace_text call per block, combining fixes into a single exact span with a short reason.${sel}`,
     custom: `Carry out the author's request.${sel} Use the edit tools for any change to the manuscript; answer in plain text if they only asked a question.`,

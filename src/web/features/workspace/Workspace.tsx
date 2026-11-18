@@ -405,9 +405,11 @@ function ChapterSession({
   /* -------------------------------------------------- agent */
   const run = useCallback(
     async (mode: AgentMode, instruction: string) => {
-      if (!editor || running) return;
+      if (!editor || running || abortRef.current) return;
+      const replying = mode === "reply";
       // Capture the selection before anything async: the bubble collapses it right after calling us.
-      const { from, to, empty } = editor.state.selection;
+      const { from, to, empty: selectionEmpty } = editor.state.selection;
+      const empty = replying || selectionEmpty;
       const selectionText = empty ? undefined : editor.state.doc.textBetween(from, to, "\n");
       const selectionIds: string[] = [];
       let focusId: string | null = null;
@@ -418,12 +420,14 @@ function ChapterSession({
       });
       if (!empty) setWorkingRange(editor, { from, to });
       setRunning(true);
-      await flush();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       setTab("agent");
       setLive({ mode, instruction, status: [], text: "", tools: [], suggestions: 0 });
       const seen = new Set<string>();
+      let reply: EditorSuggestion | undefined;
+      let replyCompleted = false;
+      let replyFailed = false;
       const onEvent = (e: AgentEvent) => {
         switch (e.t) {
           case "run-start":
@@ -457,6 +461,7 @@ function ChapterSession({
             break;
           case "suggestion": {
             const s = toEditorSuggestion(e.suggestion);
+            if (replying) reply = s;
             if (!seen.has(s.id)) {
               seen.add(s.id);
               setLive((l) => l && { ...l, suggestions: l.suggestions + 1 });
@@ -474,20 +479,42 @@ function ChapterSession({
             setList((l) => l.filter((x) => x.id !== e.id));
             break;
           case "error":
+            replyFailed = true;
+            if (replying) toast.error(e.message);
             setLive((l) => l && { ...l, error: e.message });
             break;
           case "done":
+            replyCompleted = true;
             setLive((l) => l && { ...l, done: true, usage: e.usage, elapsedMs: e.elapsedMs, runId: e.runId });
             break;
         }
       };
       try {
-        await runAgent({ chapterId, instruction, mode, selectionIds, selectionText, focusId }, onEvent, ctrl.signal);
+        await flush();
+        if (ctrl.signal.aborted) return;
+        if (replying && pendingDoc.current) throw new Error("Save the latest message before requesting a reply.");
+        await runAgent({ chapterId, instruction, mode, selectionIds, selectionText, focusId: replying ? null : focusId }, onEvent, ctrl.signal);
+        if (replying && replyCompleted && !replyFailed && !ctrl.signal.aborted && !editor.isDestroyed) {
+          // A reply may only be applied automatically at the current end of the thread.
+          const tailId = editor.state.doc.lastChild?.attrs.id ?? null;
+          if (reply?.op.op === "insert_after" && reply.op.afterId === tailId && applySuggestion(editor, reply.op)) {
+            resolve([reply.id], "accepted");
+            await flush();
+            requestAnimationFrame(() => {
+              if (!editor.isDestroyed) editor.view.dom.lastElementChild?.scrollIntoView({ block: "nearest" });
+            });
+          } else if (!reply) {
+            toast.message("No reply was generated. Use the sparkle button to try again.");
+          }
+        }
       } catch (err: any) {
-        if (!ctrl.signal.aborted) setLive((l) => l && { ...l, error: err.message });
+        if (!ctrl.signal.aborted) {
+          if (replying) toast.error(err.message);
+          setLive((l) => l && { ...l, error: err.message });
+        }
         else setLive((l) => l && { ...l, error: "Stopped." });
       } finally {
-        setWorkingRange(editor, null);
+        if (!editor.isDestroyed) setWorkingRange(editor, null);
         setDrafts({});
         setRunning(false);
         abortRef.current = null;
@@ -495,7 +522,7 @@ function ChapterSession({
         queryClient.invalidateQueries({ queryKey: trpc.chapters.list.queryKey(projectId) });
       }
     },
-    [editor, running, flush, chapterId, projectId],
+    [editor, running, flush, chapterId, projectId, resolve],
   );
 
   /* -------------------------------------------------- page turn (summary on the verso) */
@@ -568,7 +595,8 @@ function ChapterSession({
                     pov={pov}
                     speakers={speakerNames}
                     busy={running}
-                    onReply={() => run("continue", "")}
+                    awaitingReply={running && live?.mode === "reply"}
+                    onReply={() => run("reply", "")}
                   />
                 )}
               </article>
